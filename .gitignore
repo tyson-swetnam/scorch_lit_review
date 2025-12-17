@@ -1,0 +1,92 @@
+# SCORCH Literature Review - Git Ignore
+
+# API Keys and Environment Files
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+credentials.json
+secrets.json
+
+# Database Files (can be large, regenerated from reviews/)
+duckdb/*
+!duckdb/.gitkeep
+
+# PDF Files (can be large, usually proprietary)
+pdfs/*.pdf
+
+# Review JSON Files (excluded - can be large and regenerated)
+reviews/*
+!reviews/.gitkeep
+
+# Debug Files
+reviews/*_debug.txt
+*.log
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+venv/
+ENV/
+env/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Temporary Files
+*.tmp
+*.bak
+*.backup
+temp/
+tmp/
+
+# OS Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Backup Files
+backups/
+*.backup
+
+# Test Data (optional)
+test_data/*.pdf
+
+# Reports and Exports (optional - remove if you want to track these)
+reports/
+exports/
+output/
+*.csv
+*.xlsx

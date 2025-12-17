@@ -1,0 +1,688 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "scorch_lit_review_extraction",
+  "title": "SCORCH Literature Review Extraction Schema",
+  "description": "Schema for extracting climate-health research data from literature focused on arid/semi-arid regions of the US Southwest and northern Mexico",
+  "version": "1.1",
+  "instructions": {
+    "na_policy": "Use the string 'N/A' when information is not present in the source PDF. Do not make assumptions or provide creative answers. Only extract what is explicitly stated or clearly supported by the document.",
+    "boolean_fields": "Use true/false for all yes/no and checkbox-style questions.",
+    "array_fields": "Use arrays for multiple values. Empty array [] if none found, or ['N/A'] if the question requires acknowledgment that data was sought but not found."
+  },
+  "type": "object",
+  "required": ["screening", "metadata", "spatial_temporal", "study_characteristics"],
+  "properties": {
+    "screening": {
+      "type": "object",
+      "description": "Initial screening criteria (Q1-2)",
+      "properties": {
+        "focuses_on_arid_semiarid_sw_us_mexico": {
+          "type": "boolean",
+          "description": "Q1: Does this study focus on arid and semi-arid regions of the southwestern United States and/or northern Mexico? If not, does it include climate resilience recommendations for arid or semi-arid regions?"
+        },
+        "includes_primary_data_for_region": {
+          "type": "boolean",
+          "description": "Q2: Does it include primary data specific to these arid and semi-arid regions?"
+        }
+      },
+      "required": ["focuses_on_arid_semiarid_sw_us_mexico", "includes_primary_data_for_region"]
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Basic article metadata (Q3-4)",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Q3: What is the title?"
+        },
+        "citation_apa7": {
+          "type": "string",
+          "description": "Q4: Full citation in APA 7th edition format"
+        }
+      },
+      "required": ["title", "citation_apa7"]
+    },
+    "spatial_temporal": {
+      "type": "object",
+      "description": "Spatial and temporal characteristics (Q5-9)",
+      "properties": {
+        "spatial_scale": {
+          "type": "string",
+          "description": "Q5: Smallest spatial unit used in the study",
+          "enum": ["Household", "Neighborhood", "City", "County", "State", "Regional", "National", "N/A"]
+        },
+        "geographic_areas": {
+          "type": "array",
+          "description": "Q6: Complete list of geographic area(s) assessed",
+          "items": {
+            "type": "string"
+          }
+        },
+        "publication_year": {
+          "type": ["integer", "string"],
+          "description": "Q7: Year of publication (integer or 'N/A')"
+        },
+        "data_date_earliest": {
+          "type": "string",
+          "description": "Q8: Date of earliest data used (mm/dd/YYYY), 'forecast period: START-END', or 'N/A'"
+        },
+        "data_date_latest": {
+          "type": "string",
+          "description": "Q9: Date of latest data used (mm/dd/YYYY), 'forecast period: START-END', or 'N/A'"
+        }
+      },
+      "required": ["spatial_scale", "geographic_areas", "publication_year"]
+    },
+    "study_characteristics": {
+      "type": "object",
+      "description": "Study setting and design (Q10-12)",
+      "properties": {
+        "setting": {
+          "type": "string",
+          "description": "Q10: Settings analyzed in this study",
+          "enum": ["Urban", "Rural", "Mixed", "Not Specified", "Other"]
+        },
+        "setting_other": {
+          "type": "string",
+          "description": "Q10: If setting is 'Other', specify here. Otherwise 'N/A'"
+        },
+        "arid_semiarid_classification": {
+          "type": "string",
+          "description": "Q11: Do the regions carry an arid/semi-arid region classification?",
+          "enum": ["Yes", "No", "Mixed", "Unclear"]
+        },
+        "study_design": {
+          "type": "string",
+          "description": "Q12: Primary study design type",
+          "enum": [
+            "Ecological Study",
+            "Geographic Analysis of Surveillance Data",
+            "Temporal Analysis of Surveillance Data",
+            "Randomised Controlled Trial",
+            "Non-Randomised Experimental Study",
+            "Cohort Study",
+            "Cross-Sectional Study",
+            "Case Control Study",
+            "Systematic Review",
+            "Scoping Review",
+            "Qualitative Research",
+            "Prevalence Study",
+            "Case Series",
+            "Case Report",
+            "Diagnostic Test Accuracy Study",
+            "Clinical Prediction Rule",
+            "Economic Evaluation",
+            "Other"
+          ]
+        },
+        "study_design_other": {
+          "type": "string",
+          "description": "Q12: If study_design is 'Other', specify here. Otherwise 'N/A'"
+        }
+      },
+      "required": ["setting", "arid_semiarid_classification", "study_design"]
+    },
+    "data_tables": {
+      "type": "object",
+      "description": "Variable tables (Q13-15). Use empty array [] if no relevant data. Tables can be generated from these arrays.",
+      "properties": {
+        "health_outcome_variables": {
+          "type": "array",
+          "description": "Q13: Health outcome variables analyzed (not just mentioned). Max 10 most relevant. Empty array if health outcomes not included.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "variable": {
+                "type": "string",
+                "description": "Name of the health outcome variable"
+              },
+              "spatial_resolution": {
+                "type": "string",
+                "description": "Spatial resolution of the data"
+              },
+              "data_source": {
+                "type": "string",
+                "description": "Source of the data"
+              }
+            },
+            "required": ["variable", "spatial_resolution", "data_source"]
+          },
+          "maxItems": 10
+        },
+        "cofactor_variables": {
+          "type": "array",
+          "description": "Q14: Co-factors explicitly included in analysis (exclude weather/climate factors). Max 10 most relevant. Empty array if no co-factors mentioned.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "variable": {
+                "type": "string",
+                "description": "Name of the co-factor variable"
+              },
+              "spatial_resolution": {
+                "type": "string",
+                "description": "Spatial resolution of the data"
+              },
+              "data_source": {
+                "type": "string",
+                "description": "Source of the data"
+              }
+            },
+            "required": ["variable", "spatial_resolution", "data_source"]
+          },
+          "maxItems": 10
+        },
+        "climate_weather_variables": {
+          "type": "array",
+          "description": "Q15: Climate and weather data analyzed. Max 10 most relevant. Empty array if no climate/weather data analyzed.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "variable": {
+                "type": "string",
+                "description": "Name of the climate/weather variable"
+              },
+              "spatial_resolution": {
+                "type": "string",
+                "description": "Spatial resolution of the data"
+              },
+              "data_source": {
+                "type": "string",
+                "description": "Source of the data"
+              }
+            },
+            "required": ["variable", "spatial_resolution", "data_source"]
+          },
+          "maxItems": 10
+        }
+      }
+    },
+    "methods": {
+      "type": "object",
+      "description": "Analytical methods (Q16)",
+      "properties": {
+        "analytical_methods": {
+          "type": "array",
+          "description": "Q16: Primary analytical methods employed (e.g., 'Poisson regression', 'Time-series model', 'Climate projection using CMIP6')",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "health_outcomes": {
+      "type": "object",
+      "description": "Climate-related health outcomes (Q17-18)",
+      "properties": {
+        "specific_health_outcomes": {
+          "type": "array",
+          "description": "Q17: Specific climate or climate-related health outcomes/diseases/conditions assessed",
+          "items": {
+            "type": "string"
+          }
+        },
+        "health_outcome_categories": {
+          "type": "object",
+          "description": "Q18: Categories of climate-related health outcomes studied. Set to true if studied, false if not.",
+          "properties": {
+            "heat": { "type": "boolean" },
+            "ground_level_ozone_air_pollution": { "type": "boolean" },
+            "aridity_drought": { "type": "boolean" },
+            "wind_dust": { "type": "boolean" },
+            "fire_smoke": { "type": "boolean" },
+            "extreme_precipitation_flooding": { "type": "boolean" },
+            "mold": { "type": "boolean" },
+            "fungi": { "type": "boolean" },
+            "pollen_environmental_allergens": { "type": "boolean" },
+            "vectors_vector_habitat": { "type": "boolean" },
+            "vector_borne_diseases": { "type": "boolean" },
+            "digestive_infections": { "type": "boolean" },
+            "respiratory_infections": { "type": "boolean" },
+            "skin_infections": { "type": "boolean" },
+            "cardiovascular_conditions": { "type": "boolean" },
+            "renal_conditions": { "type": "boolean" },
+            "cancers": { "type": "boolean" },
+            "pregnancy_fetal_development_birth": { "type": "boolean" },
+            "mental_health": { "type": "boolean" },
+            "maternal_health": { "type": "boolean" },
+            "neurological_conditions": { "type": "boolean" },
+            "endocrine_impacts": { "type": "boolean" },
+            "immune_system_impacts_inflammation": { "type": "boolean" },
+            "autoimmunity": { "type": "boolean" },
+            "sleep_disturbances": { "type": "boolean" },
+            "behaviour_violence": { "type": "boolean" },
+            "compounding_environmental_exposures": { "type": "boolean" },
+            "water_quality_security": { "type": "boolean" },
+            "food_insecurity": { "type": "boolean" },
+            "green_spaces": { "type": "boolean" },
+            "blue_spaces": { "type": "boolean" },
+            "built_environment": { "type": "boolean" },
+            "other": { "type": "boolean" }
+          }
+        },
+        "health_outcome_categories_other_specified": {
+          "type": "array",
+          "description": "Q18: If 'other' is true, list the additional health outcomes here",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "exposures": {
+      "type": "object",
+      "description": "Exposure assessment (Q19-20)",
+      "properties": {
+        "direct_exposures": {
+          "type": "array",
+          "description": "Q19: Specific direct exposure(s) assessed in epidemiological terms",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exposure_categories": {
+          "type": "object",
+          "description": "Q20: Exposures of interest analyzed or discussed. Set to true if included, false if not.",
+          "properties": {
+            "heat": { "type": "boolean" },
+            "drought_aridification": { "type": "boolean" },
+            "precipitation": { "type": "boolean" },
+            "humidity": { "type": "boolean" },
+            "wind_dust": { "type": "boolean" },
+            "flooding": { "type": "boolean" },
+            "extreme_seasonal_weather_fluctuations": { "type": "boolean" },
+            "green_space": { "type": "boolean" },
+            "air_pollution": { "type": "boolean" },
+            "ground_level_ozone": { "type": "boolean" },
+            "leaching_chemicals_heavy_metals": { "type": "boolean" },
+            "soil_health": { "type": "boolean" },
+            "other": { "type": "boolean" }
+          }
+        },
+        "exposure_categories_other_specified": {
+          "type": "array",
+          "description": "Q20: If 'other' is true, list the additional exposures here",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "demographics": {
+      "type": "object",
+      "description": "Population and demographic information (Q21-22)",
+      "properties": {
+        "population_sample_size": {
+          "type": "string",
+          "description": "Q21: Population or sample sizes reported. Include ranges/estimates as noted in the paper. Use 'N/A' if not reported."
+        },
+        "sex_demographics_reported": {
+          "type": "boolean",
+          "description": "Q22: Does the study identify sex demographics?"
+        },
+        "sex_demographics": {
+          "type": "object",
+          "description": "Q22: Sex demographics. Use null for unreported values.",
+          "properties": {
+            "female_percentage": {
+              "type": ["number", "null"]
+            },
+            "female_count": {
+              "type": ["integer", "null"]
+            },
+            "male_percentage": {
+              "type": ["number", "null"]
+            },
+            "male_count": {
+              "type": ["integer", "null"]
+            },
+            "other_gender_percentage": {
+              "type": ["number", "null"]
+            },
+            "other_gender_count": {
+              "type": ["integer", "null"]
+            }
+          }
+        },
+        "race_ethnicity_reported": {
+          "type": "boolean",
+          "description": "Q22: Does the study identify race/ethnicity demographics?"
+        },
+        "race_ethnicity_demographics": {
+          "type": "array",
+          "description": "Q22: Race/Ethnicity demographics. Empty array if not reported.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "group": {
+                "type": "string"
+              },
+              "percentage": {
+                "type": ["number", "null"]
+              },
+              "count": {
+                "type": ["integer", "null"]
+              }
+            },
+            "required": ["group"]
+          }
+        }
+      }
+    },
+    "interventions": {
+      "type": "object",
+      "description": "Intervention analysis (Q23)",
+      "properties": {
+        "analyzes_interventions": {
+          "type": "boolean",
+          "description": "Q23: Does the study analyze any interventions?"
+        },
+        "intervention_description": {
+          "type": "string",
+          "description": "Q23: Brief description of interventions (1-2 sentences). Use 'N/A' if no interventions analyzed."
+        }
+      }
+    },
+    "objectives_met": {
+      "type": "object",
+      "description": "Q24: Study objectives alignment. Use 'Met', 'Partially Met', or 'Not Met'.",
+      "properties": {
+        "obj_01_climate_health_impacts_arid": {
+          "type": "string",
+          "description": "Explores climate-related human health impacts in arid and semi-arid regions of the SW US and northern Mexico",
+          "enum": ["Met", "Partially Met", "Not Met"]
+        },
+        "obj_02_extreme_weather_health": {
+          "type": "string",
+          "description": "Explores direct or indirect health impacts associated with extreme weather events and temperature/precipitation fluctuations",
+          "enum": ["Met", "Partially Met", "Not Met"]
+        },
+        "obj_03_climate_health_forecasts": {
+          "type": "string",
+          "description": "Distills climate and climate-related health forecasts for the next 50-100 years",
+          "enum": ["Met", "Partially Met", "Not Met"]
+        },
+        "obj_04_vulnerable_communities": {
+          "type": "string",
+          "description": "Identifies vulnerable communities",
+          "enum": ["Met", "Partially Met", "Not Met"]
+        },
+        "obj_05_research_gaps": {
+          "type": "string",
+          "description": "Highlights potential research gaps",
+          "enum": ["Met", "Partially Met", "Not Met"]
+        },
+        "obj_06_solutions_adaptations": {
+          "type": "string",
+          "description": "Explores potential solutions and adaptations for sustainable climate resilience",
+          "enum": ["Met", "Partially Met", "Not Met"]
+        }
+      }
+    },
+    "research_questions": {
+      "type": "object",
+      "description": "Research questions addressed (Q25-28). Use true/false for whether each question is addressed.",
+      "properties": {
+        "q1_extreme_weather_health_impacts": {
+          "type": "object",
+          "description": "Q1: How do extreme weather events and escalating seasonal fluctuations impact human health in arid regions of the SW US and northern Mexico?",
+          "properties": {
+            "addressed": {
+              "type": "boolean",
+              "description": "Q25: Is this research question addressed? true/false"
+            },
+            "summary": {
+              "type": "string",
+              "description": "Q26: Summary of their answer in 2-3 sentences. Use 'N/A' if not addressed."
+            }
+          },
+          "required": ["addressed", "summary"]
+        },
+        "q2_future_disease_landscape": {
+          "type": "object",
+          "description": "Q2: How is the landscape of climate-related diseases likely to change in the SW US and northern Mexico in the next 5, 10, 20, 50, and 100 years?",
+          "properties": {
+            "addressed": {
+              "type": "boolean",
+              "description": "Q25: Is this research question addressed? true/false"
+            },
+            "summary": {
+              "type": "string",
+              "description": "Q27: Summary of their answer in 2-3 sentences. Use 'N/A' if not addressed."
+            }
+          },
+          "required": ["addressed", "summary"]
+        },
+        "q3_sustainable_solutions": {
+          "type": "object",
+          "description": "Q3: What are some examples of successful, sustainable solutions for climate resilience that could apply to the SW states and northern Mexico?",
+          "properties": {
+            "addressed": {
+              "type": "boolean",
+              "description": "Q25: Is this research question addressed? true/false"
+            },
+            "summary": {
+              "type": "string",
+              "description": "Q28: Summary of their answer in 2-3 sentences. Use 'N/A' if not addressed."
+            }
+          },
+          "required": ["addressed", "summary"]
+        }
+      }
+    },
+    "unquantified_health_impacts": {
+      "type": "array",
+      "description": "Q29: Health impacts mentioned but not quantified (epidemiological terms). Empty array if none.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "associations_effects": {
+      "type": "object",
+      "description": "Association and effect information (Q30-31)",
+      "properties": {
+        "effect_sizes_reported": {
+          "type": "boolean",
+          "description": "Q30: Did authors include association or relative impact information?"
+        },
+        "effect_narrative": {
+          "type": "string",
+          "description": "Q30: Effect size + CI if reported (e.g., 'RR = 1.23, 95% CI: 1.10-1.37'), or qualitative narrative summary (1-3 sentences). Use 'N/A' if not reported."
+        },
+        "correlations_table": {
+          "type": "array",
+          "description": "Q31: Correlations studied or mentioned. Max 10 most relevant. Empty array if none reported.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "variable": {
+                "type": "string",
+                "description": "Variable name"
+              },
+              "effect_size_correlation": {
+                "type": "string",
+                "description": "Effect size or correlation value"
+              },
+              "significance": {
+                "type": "string",
+                "description": "Statistical significance (e.g., p-value)"
+              },
+              "confidence_interval": {
+                "type": "string",
+                "description": "Confidence interval in format (lower, upper)"
+              }
+            },
+            "required": ["variable", "effect_size_correlation", "significance", "confidence_interval"]
+          },
+          "maxItems": 10
+        }
+      }
+    },
+    "climate_projections": {
+      "type": "object",
+      "description": "Climate change projection modeling (Q32-35)",
+      "properties": {
+        "includes_projection_modeling": {
+          "type": "boolean",
+          "description": "Q32: Does this paper include Climate Change Projection Modeling?"
+        },
+        "climate_scenarios": {
+          "type": "array",
+          "description": "Q33: Climate scenarios included (e.g., 'RCP 4.5', 'SSP2-4.5'). Empty array if not applicable.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "time_horizons": {
+          "type": "string",
+          "description": "Q34: Time horizons mentioned in the study. Use 'N/A' if not applicable."
+        },
+        "projection_description": {
+          "type": "string",
+          "description": "Q35: Concise description of climate projections with specific data and time horizons. Use 'N/A' if not applicable."
+        }
+      }
+    },
+    "vulnerable_populations": {
+      "type": "array",
+      "description": "Q36: Vulnerable populations explored. Max 6 most relevant. Empty array if none explored.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "population_group": {
+            "type": "string",
+            "description": "Name of the vulnerable population group"
+          },
+          "vulnerability_reasons": {
+            "type": "string",
+            "description": "Reasons for the vulnerability"
+          }
+        },
+        "required": ["population_group", "vulnerability_reasons"]
+      },
+      "maxItems": 6
+    },
+    "climate_resilience": {
+      "type": "object",
+      "description": "Climate resilience measures (Q37-39)",
+      "properties": {
+        "resilience_categories": {
+          "type": "object",
+          "description": "Q37: Climate resilience measures discussed. Set to true if explicitly included, false if not.",
+          "properties": {
+            "built_environment": { "type": "boolean" },
+            "vector_control": { "type": "boolean" },
+            "heat_mitigation": { "type": "boolean" },
+            "aridity_mitigation_water_management": { "type": "boolean" },
+            "green_spaces": { "type": "boolean" },
+            "blue_spaces": { "type": "boolean" },
+            "soil_regeneration": { "type": "boolean" },
+            "energy_systems": { "type": "boolean" },
+            "closed_systems_systems_thinking": { "type": "boolean" },
+            "policy_and_law": { "type": "boolean" },
+            "other": { "type": "boolean" }
+          }
+        },
+        "resilience_categories_other_specified": {
+          "type": "array",
+          "description": "Q37: If 'other' is true, list the additional categories here",
+          "items": {
+            "type": "string"
+          }
+        },
+        "specific_strategies": {
+          "type": "array",
+          "description": "Q38: Specific climate resilience strategies mentioned. Empty array if none.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "successful_adaptations": {
+          "type": "string",
+          "description": "Q39: Examples of successful adaptations/solutions (few sentences). Use 'N/A' if not provided."
+        }
+      }
+    },
+    "relevance_summary": {
+      "type": "string",
+      "description": "Q40: Summary of why this study is relevant to arid regions of SW US and northern Mexico (2-3 sentences)"
+    },
+    "limitations_gaps": {
+      "type": "object",
+      "description": "Study limitations and gaps (Q41-43)",
+      "properties": {
+        "limitations": {
+          "type": "string",
+          "description": "Q41: Summary of limitations discussed (2-3 sentences). Use 'N/A' if not discussed."
+        },
+        "data_gaps": {
+          "type": "string",
+          "description": "Q42: Summary of data gaps mentioned (2-3 sentences). Use 'N/A' if not mentioned."
+        },
+        "future_research": {
+          "type": "string",
+          "description": "Q43: Summary of potential areas for future research (2-3 sentences). Use 'N/A' if not discussed."
+        }
+      }
+    },
+    "overall_relevance": {
+      "type": "object",
+      "description": "Q44: Overall relevance assessment",
+      "properties": {
+        "relevance_rating": {
+          "type": "string",
+          "enum": ["High", "Medium", "Low"]
+        },
+        "relevance_justification": {
+          "type": "string",
+          "description": "Justification with specific reference to objectives (2-3 sentences)"
+        }
+      },
+      "required": ["relevance_rating", "relevance_justification"]
+    },
+    "summary": {
+      "type": "object",
+      "description": "Final summaries (Q45-46)",
+      "properties": {
+        "paper_summary": {
+          "type": "string",
+          "description": "Q45: Summary using precise data, statistics, population/health data, and time horizons (2-3 sentences)"
+        },
+        "conclusions_summary": {
+          "type": "string",
+          "description": "Q46: Concise summary of the conclusions"
+        }
+      },
+      "required": ["paper_summary", "conclusions_summary"]
+    },
+    "extraction_metadata": {
+      "type": "object",
+      "description": "Metadata about the extraction process",
+      "properties": {
+        "extraction_date": {
+          "type": "string",
+          "format": "date",
+          "description": "Date extraction was performed (YYYY-MM-DD)"
+        },
+        "extractor_agent": {
+          "type": "string",
+          "description": "Name/identifier of the agent that performed extraction"
+        },
+        "source_pdf_filename": {
+          "type": "string",
+          "description": "Original PDF filename"
+        },
+        "schema_version": {
+          "type": "string",
+          "default": "1.1",
+          "description": "Version of this schema used"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Any additional notes about the extraction. Use 'N/A' if none."
+        }
+      },
+      "required": ["extraction_date", "extractor_agent", "source_pdf_filename", "schema_version"]
+    }
+  }
+}
