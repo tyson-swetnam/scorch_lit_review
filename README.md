@@ -929,15 +929,18 @@ source ~/.bashrc
 python scripts/convert_to_duckdb.py
 ```
 
-#### JSON Parse Errors
+#### Extraction or schema-validation errors
 
-**Error:** `Invalid JSON - {error details}`
+**Error:** an extraction fails to parse, or `convert_to_duckdb.py` reports a
+schema violation.
 
 **Solution:**
-- Check `reviews/*_debug.txt` for raw Claude responses
-- Verify PDF is readable and not corrupted
-- Try processing single PDF first to isolate issue
-- Check schema version matches expected format
+- The batch pipeline validates each extraction and runs a one-shot repair pass;
+  the per-PDF error is printed to the console (no debug files are written).
+- The converter prints the specific schema violation per file — fix the review
+  JSON at the source rather than relaxing `scorch/records.py`.
+- Verify the PDF is readable and not corrupted; try a single PDF to isolate.
+- Confirm `extraction_metadata.schema_version` matches `schema/` (currently 1.1).
 
 #### Memory / Rate-Limit Issues with Batch Processing
 
