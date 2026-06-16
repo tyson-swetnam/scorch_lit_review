@@ -14,8 +14,13 @@ from pathlib import Path
 try:
     from anthropic import Anthropic
 except ImportError:
-    print("Error: anthropic package not found. Install with: pip install anthropic")
+    print("Error: anthropic package not found. Install with: pip install -r requirements.txt")
     sys.exit(1)
+
+# duckdb is imported above, before the repo root joins sys.path, so the top-level
+# duckdb/ data directory cannot shadow the duckdb library.
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from scorch import config  # noqa: E402
 
 
 class LiteratureAnalyst:
@@ -23,7 +28,7 @@ class LiteratureAnalyst:
 
     def __init__(self, base_dir: Path):
         self.base_dir = base_dir
-        self.db_path = base_dir / "duckdb/scorch_reviews.duckdb"
+        self.db_path = config.DB_PATH
 
         # Check database exists
         if not self.db_path.exists():
@@ -116,7 +121,7 @@ Please provide a SQL query to answer this request."""
         ]
 
         response = self.client.messages.create(
-            model="claude-sonnet-4-5-20250929",
+            model=config.EXTRACT_MODEL,
             max_tokens=4096,
             temperature=0.0,
             system=system_prompt,
