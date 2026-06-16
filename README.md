@@ -16,6 +16,8 @@ An AI-powered literature review system for extracting structured data from clima
   - [Interactive Workflow (Claude Code)](#interactive-workflow-claude-code)
   - [Batch Processing Workflow (SDK Scripts)](#batch-processing-workflow-sdk-scripts)
 - [Project Architecture](#project-architecture)
+- [Models & Cost](#models--cost)
+- [Knowledge Wiki (OKF)](#knowledge-wiki-okf)
 - [Extraction Schema](#extraction-schema)
 - [Database Schema](#database-schema)
 - [Querying Your Data](#querying-your-data)
@@ -28,19 +30,20 @@ An AI-powered literature review system for extracting structured data from clima
 
 ## Overview
 
-The SCORCH Literature Review System automates the extraction of structured information from climate-health research articles. Using Claude AI agents, the system:
+The SCORCH Literature Review System automates the extraction of structured information from climate-health research articles. Using a tiered cascade of Claude models, the system:
 
-1. **Analyzes PDF research articles** and extracts 46 structured data points
-2. **Converts extractions** to a queryable DuckDB database
-3. **Enables natural language queries** for analysis and reporting
+1. **Screens, extracts, and verifies** PDF research articles against a 46-point schema
+2. **Converts validated extractions** to a queryable DuckDB database
+3. **Builds a cross-linked knowledge wiki** (OKF) as the durable, version-controlled artifact
+4. **Enables natural language queries** and citation-grounded Q&A for analysis and reporting
 
 ### Key Features
 
-- ✅ **Automated extraction** - 46-question structured schema covering study metadata, methods, findings, and relevance
+- ✅ **Tiered extraction** - Haiku screens, Sonnet extracts, Opus verifies/synthesizes (see [Models & Cost](#models--cost))
+- ✅ **Schema-validated** - Every review is checked against the JSON Schema with a repair pass; the DuckDB schema is generated from one canonical field list and cannot drift
 - ✅ **Incremental processing** - Only processes new PDFs and reviews
-- ✅ **Parallel execution** - Batch process multiple PDFs simultaneously
-- ✅ **Standardized data** - Strict validation, enums, and data types
-- ✅ **Multiple query interfaces** - Natural language, SQL, or programmatic access
+- ✅ **Knowledge wiki** - Cross-linked OKF markdown concept docs, the durable git-tracked knowledge layer
+- ✅ **Multiple query interfaces** - Natural language → SQL, citation-grounded Q&A, direct SQL, or programmatic access
 - ✅ **Portable exports** - DuckDB and Parquet formats
 
 ### Supported Workflows
@@ -76,11 +79,11 @@ SCORCH addresses three core research questions:
 ### Prerequisites
 
 ```bash
-# Python 3.8+
+# Python 3.11+ recommended (3.8+ works for the scripts)
 python --version
 
 # Install dependencies
-pip install anthropic duckdb
+pip install -r requirements.txt
 
 # Set API key for SDK scripts
 export ANTHROPIC_API_KEY='your-api-key-here'
@@ -92,8 +95,10 @@ export ANTHROPIC_API_KEY='your-api-key-here'
 ```bash
 # Open Claude Code and use agents
 # 1. Place PDF in pdfs/ folder
-# 2. Ask: "Analyze the new PDF using scorch-pdf-analyzer"
-# 3. Ask: "Convert reviews to database using duckdb-schema-converter"
+# 2. Ask: "Screen the new PDF using scorch-screener"        (PRISMA-style include/exclude)
+# 3. Ask: "Analyze the PDF using scorch-pdf-analyzer"
+# 4. Ask: "Audit the extraction using scorch-verifier"
+# 5. Ask: "Convert reviews to database using duckdb-schema-converter"
 ```
 
 **Option 2: Batch (SDK Scripts)**
@@ -101,13 +106,16 @@ export ANTHROPIC_API_KEY='your-api-key-here'
 # 1. Add PDFs to pdfs/ directory
 cp your_paper.pdf pdfs/
 
-# 2. Extract data
-python scripts/batch_process_pdfs.py
+# 2. Extract data (optionally screen first and verify after)
+python scripts/batch_process_pdfs.py --screen --verify
 
-# 3. Build database
+# 3. Build database (validates every review)
 python scripts/convert_to_duckdb.py
 
-# 4. Query
+# 4. Build / refresh the knowledge wiki
+python scripts/build_okf.py
+
+# 5. Query
 python scripts/query_literature.py
 ```
 
@@ -125,12 +133,15 @@ cd scorch_lit_review
 ### 2. Install Python Dependencies
 
 ```bash
-pip install anthropic duckdb
+pip install -r requirements.txt
 ```
 
-**Required packages:**
-- `anthropic` (Claude SDK) - For AI-powered extraction and queries
-- `duckdb` - For database operations
+**Required packages (see `requirements.txt`):**
+- `anthropic` - Claude API for extraction, citations, and structured outputs
+- `duckdb` - Analytical database and Parquet export
+- `jsonschema` - Validates reviews against `schema/scorch_extraction_schema.json`
+- `pydantic` - Typed models for structured outputs
+- `PyYAML` - Reads/writes OKF YAML frontmatter
 
 ### 3. Set Up API Key
 
@@ -151,7 +162,7 @@ export ANTHROPIC_API_KEY='sk-ant-api...'
 python --version  # Should be 3.8+
 
 # Check dependencies
-python -c "import anthropic; import duckdb; print('✓ All dependencies installed')"
+python -c "import anthropic, duckdb, jsonschema, pydantic, yaml; print('✓ All dependencies installed')"
 
 # Check scripts are executable
 ls -l scripts/*.py
@@ -159,22 +170,42 @@ ls -l scripts/*.py
 
 ### Directory Structure
 
+`pdfs/`, `reviews/`, and `duckdb/` are **gitignored** (large and regenerable). The committed
+`okf/` wiki, the `scorch/` package, the schema, and the scripts are the durable, version-controlled
+artifacts.
+
 ```
 scorch_lit_review/
-├── pdfs/                    # Input: Place PDF articles here
-├── reviews/                 # Output: JSON extraction files
-├── duckdb/                  # Output: Database and Parquet files
+├── pdfs/                    # Input: Place PDF articles here          (gitignored)
+├── reviews/                 # Intermediate: JSON extraction files     (gitignored)
+├── duckdb/                  # Output: Database and Parquet files      (gitignored)
+├── okf/                     # Knowledge wiki: cross-linked markdown    (committed)
+│   ├── papers/ health-outcomes/ exposures/ resilience/ populations/ regions/
+│   ├── datasets/scorch-reviews.md     # generated column reference for the DB
+│   ├── schema/extraction-schema.md
+│   ├── index.md  log.md  CONVENTIONS.md
+├── scorch/                  # Shared package: single source of truth
+│   ├── config.py            # Model IDs, paths, cost estimates
+│   ├── records.py           # Canonical schema → DB-row mapping (DDL + INSERTs)
+│   └── okf.py               # OKF wiki read/write helpers
 ├── schema/                  # Extraction schema definition
 │   └── scorch_extraction_schema.json
 ├── scripts/                 # SDK scripts for batch processing
-│   ├── batch_process_pdfs.py
-│   ├── convert_to_duckdb.py
-│   ├── query_literature.py
+│   ├── batch_process_pdfs.py    # tiered screen → extract → verify
+│   ├── convert_to_duckdb.py     # JSON → DuckDB (validated)
+│   ├── build_okf.py             # reviews → okf/ wiki
+│   ├── synthesize.py            # cited evidence syntheses (STORM-inspired)
+│   ├── ask_papers.py            # citation-grounded Q&A (PaperQA2-inspired)
+│   ├── query_literature.py      # natural language → SQL
 │   └── README.md
 ├── .claude/agents/          # Claude Code agent definitions
+│   ├── scorch-screener.md           # Haiku PRISMA-style include/exclude
 │   ├── scorch-pdf-analyzer.md
+│   ├── scorch-verifier.md           # Opus independent audit
 │   ├── duckdb-schema-converter.md
 │   └── duckdb-literature-analyst.md
+├── requirements.txt         # Python dependencies
+├── AGENTS.md                # Condensed conventions for AI agents
 ├── CLAUDE.md                # Instructions for Claude Code
 └── README.md                # This file
 ```
@@ -199,19 +230,24 @@ pdfs/
   └── Garcia_2024_UrbanHeat.pdf
 ```
 
-#### Step 2: Extract Data from PDFs
+#### Step 2: Screen, Extract, and Verify
 
-In Claude Code, use the Task tool to invoke the agent:
+In Claude Code, use the Task tool to invoke the agents in order. Screening and
+verification are optional but recommended for quality control.
 
 ```
-Can you analyze the PDFs in the pdfs/ folder using the scorch-pdf-analyzer agent?
+1. Screen the PDFs in pdfs/ using the scorch-screener agent     (include/exclude on Q1-Q2)
+2. Analyze the included PDFs using the scorch-pdf-analyzer agent
+3. Audit each extraction using the scorch-verifier agent        (Opus, vs. the PDF)
 ```
 
-The agent will:
-- Identify unprocessed PDFs
-- Read each PDF document
-- Extract data according to the 46-question schema
-- Save JSON files to `reviews/` folder
+The agents will:
+- **scorch-screener** (Haiku) — apply a PRISMA-style include/exclude gate on the
+  regional-focus and primary-data screening questions
+- **scorch-pdf-analyzer** — read each included PDF and extract data according to
+  the 46-question schema, saving JSON files to `reviews/`
+- **scorch-verifier** (Opus) — independently audit each extraction against the
+  source PDF for hallucinations and N/A-policy violations
 
 **Output:** `reviews/Smith_2023_HeatMortality_review.json`
 
@@ -243,6 +279,16 @@ The agent will:
 - Format results
 - Provide insights
 
+#### Step 5: Build the Knowledge Wiki
+
+```bash
+python scripts/build_okf.py
+```
+
+Regenerates the cross-linked OKF markdown wiki under `okf/` from the reviews.
+Curated prose under `## Curator notes` is preserved across rebuilds. See
+[Knowledge Wiki (OKF)](#knowledge-wiki-okf).
+
 ---
 
 ### Batch Processing Workflow (SDK Scripts)
@@ -265,15 +311,22 @@ python scripts/batch_process_pdfs.py --help 2>/dev/null || echo "Ready to proces
 # Add PDFs to pdfs/ directory
 cp /path/to/papers/*.pdf pdfs/
 
-# Process all unreviewed PDFs
-python scripts/batch_process_pdfs.py
+# Process all unreviewed PDFs (tiered pipeline)
+python scripts/batch_process_pdfs.py --screen --verify
+
+# Preview the work without making any API calls
+python scripts/batch_process_pdfs.py --dry-run
 ```
 
-**Features:**
-- Processes 4 PDFs in parallel (configurable)
-- Each PDF gets independent 1M token context
-- Progress reporting per batch
-- Error handling with debug files
+**What it does:**
+- Uploads each PDF once via the **Files API** and references it by `file_id` across stages
+- Caches the (large, stable) schema prefix with **prompt caching** to cut cost
+- `--screen` — cheap Haiku include/exclude gate on the arid-SW screening questions
+- Extracts the 46-field schema with Sonnet, then **validates** the result against the
+  schema with a one-shot repair pass
+- `--verify` — Opus audit pass flagging likely hallucinations / N/A-policy violations
+- Records provenance (model, token usage, cost) in `extraction_metadata`
+- Processes up to 4 PDFs concurrently (override with `SCORCH_BATCH_CONCURRENCY`)
 
 **Output:**
 ```
@@ -296,12 +349,17 @@ Batch 1/3 - Processing 4 PDFs in parallel
 
 ```bash
 python scripts/convert_to_duckdb.py
+
+python scripts/convert_to_duckdb.py --rebuild   # drop & rebuild all tables
+python scripts/convert_to_duckdb.py --strict    # abort on the first validation error
 ```
 
 **Features:**
-- Incremental updates (skips existing)
+- Validates every review against the schema with `jsonschema` — invalid reviews are
+  reported and skipped (use `--strict` to abort instead)
+- Incremental updates (skips reviews already in the DB)
 - No API key required
-- Automatic schema management
+- Schema (DDL + INSERTs) generated from `scorch/records.py`, so columns cannot drift
 - Parquet export
 
 **Output:**
@@ -375,57 +433,172 @@ Low              | 2
 (3 rows)
 ```
 
+#### Step 5: Build / Refresh the Knowledge Wiki
+
+```bash
+python scripts/build_okf.py                    # reviews → okf/ wiki (no API key)
+python scripts/synthesize.py --all             # draft cited "Curator notes" (needs API key)
+python scripts/synthesize.py --all --dry-run   # list targets, no API call
+```
+
+`build_okf.py` regenerates the cross-linked OKF markdown under `okf/`.
+`synthesize.py` (STORM-inspired) writes cited evidence syntheses into concept pages
+under `## Curator notes`; target a single page with `--dimension`/`--concept`.
+
+#### Step 6: Ask the Papers Directly (Citation-Grounded Q&A)
+
+```bash
+python scripts/ask_papers.py "What adaptations reduce heat risk in arid cities?"
+python scripts/ask_papers.py --max-papers 4 --dry-run "test question"
+```
+
+`ask_papers.py` (PaperQA2-inspired) answers questions with inline citations by
+attaching the PDFs via the Files API; it falls back to the extracted review
+summaries when no PDFs are available.
+
 ---
 
 ## Project Architecture
 
 ### Data Flow
 
+The full pipeline screens, extracts, verifies, loads, and publishes a knowledge wiki.
+The shared `scorch/` package (`config.py`, `records.py`, `okf.py`) is the single source
+of truth for models, the schema→DB mapping, and OKF helpers used across all stages.
+
 ```
 ┌─────────────┐
-│   PDFs/     │  Input: Research articles
+│   pdfs/     │  Input: Research articles                         (gitignored)
 └──────┬──────┘
        │
        ▼
-┌─────────────────────────────────┐
-│  Extraction Layer               │
-│  • scorch-pdf-analyzer (agent)  │  AI-powered extraction
-│  • batch_process_pdfs.py (SDK)  │  46-question schema
-└──────┬──────────────────────────┘
+┌──────────────────────────────────────┐
+│  Screen   [Haiku 4.5]                │  Interactive: scorch-screener
+│  • PRISMA-style include / exclude    │  Batch: batch_process_pdfs.py --screen
+└──────┬───────────────────────────────┘
+       │
+       ▼
+┌──────────────────────────────────────┐
+│  Extract  [Sonnet 4.6]               │  Interactive: scorch-pdf-analyzer
+│  • 46-field schema + schema validate │  Batch: batch_process_pdfs.py
+└──────┬───────────────────────────────┘
+       │
+       ▼
+┌──────────────────────────────────────┐
+│  Verify   [Opus 4.8]                 │  Interactive: scorch-verifier
+│  • independent audit vs. the PDF     │  Batch: batch_process_pdfs.py --verify
+└──────┬───────────────────────────────┘
        │
        ▼
 ┌─────────────┐
-│  reviews/   │  Output: JSON files
+│  reviews/   │  Intermediate: JSON files                         (gitignored)
 └──────┬──────┘
        │
        ▼
-┌─────────────────────────────────┐
-│  Database Layer                 │
-│  • duckdb-schema-converter      │  JSON → SQL
-│  • convert_to_duckdb.py         │  Normalization
-└──────┬──────────────────────────┘
+┌──────────────────────────────────────┐
+│  Load     (validated)                │  Interactive: duckdb-schema-converter
+│  • JSON → DuckDB via scorch/records  │  Batch: convert_to_duckdb.py
+└──────┬───────────────────────────────┘
+       │
+       ├───────────────► ┌─────────────┐
+       │                 │  duckdb/    │  Queryable DB + Parquet      (gitignored)
+       │                 └──────┬──────┘
+       │                        │
+       │                        ▼
+       │       ┌──────────────────────────────────────┐
+       │       │  Query Layer                         │
+       │       │  • duckdb-literature-analyst (agent) │  Natural language → SQL
+       │       │  • query_literature.py / ask_papers  │  SQL gen / cited Q&A
+       │       │  • Direct SQL (DuckDB CLI)           │  Programmatic access
+       │       └──────────────────────────────────────┘
        │
        ▼
-┌─────────────┐
-│  duckdb/    │  Output: Queryable database
-└──────┬──────┘
-       │
-       ▼
-┌─────────────────────────────────┐
-│  Query Layer                    │
-│  • duckdb-literature-analyst    │  Natural language
-│  • query_literature.py          │  SQL generation
-│  • Direct SQL (DuckDB CLI)      │  Programmatic access
-└─────────────────────────────────┘
+┌──────────────────────────────────────┐
+│  build_okf.py → okf/  [+ synthesize] │  Knowledge wiki              (committed)
+│  • cross-linked markdown concept docs│  durable, version-controlled
+└──────────────────────────────────────┘
 ```
 
 ### Component Comparison
 
-| Component | Interactive | SDK Script | Purpose |
-|-----------|-------------|------------|---------|
-| **PDF Extraction** | scorch-pdf-analyzer | batch_process_pdfs.py | Parse PDFs → JSON |
-| **DB Conversion** | duckdb-schema-converter | convert_to_duckdb.py | JSON → DuckDB |
-| **Querying** | duckdb-literature-analyst | query_literature.py | Natural language → SQL |
+| Component | Interactive (agent) | SDK Script | Purpose |
+|-----------|---------------------|------------|---------|
+| **Screening** | scorch-screener | `batch_process_pdfs.py --screen` | Include/exclude gate (Haiku) |
+| **PDF Extraction** | scorch-pdf-analyzer | `batch_process_pdfs.py` | Parse PDFs → JSON (Sonnet) |
+| **Verification** | scorch-verifier | `batch_process_pdfs.py --verify` | Audit extraction (Opus) |
+| **DB Conversion** | duckdb-schema-converter | `convert_to_duckdb.py` | JSON → DuckDB (validated) |
+| **Knowledge Wiki** | — | `build_okf.py` / `synthesize.py` | reviews → okf/ markdown |
+| **Querying** | duckdb-literature-analyst | `query_literature.py` / `ask_papers.py` | NL → SQL / cited Q&A |
+
+---
+
+## Models & Cost
+
+Extraction uses a **tiered cascade** of Claude models, configured in `scorch/config.py`.
+Each stage can be overridden with an environment variable so the same code runs in dev,
+CI, and batch jobs without edits.
+
+| Stage | Default model | Override |
+|-------|---------------|----------|
+| Screen | `claude-haiku-4-5` | `SCORCH_SCREEN_MODEL` |
+| Extract | `claude-sonnet-4-6` | `SCORCH_EXTRACT_MODEL` |
+| Verify | `claude-opus-4-8` | `SCORCH_VERIFY_MODEL` |
+| Synthesize | `claude-opus-4-8` | `SCORCH_SYNTHESIS_MODEL` |
+
+Batch concurrency is set with `SCORCH_BATCH_CONCURRENCY` (default 4).
+
+**Cost (approximate).** The extraction model (Sonnet 4.6) is roughly $3 / $15 per million
+input / output tokens. Two mechanisms cut the per-paper cost substantially:
+
+- **Prompt caching** — the large, stable schema prefix is cached and reused across PDFs
+  (~90% cheaper on the cached portion).
+- **Batch API** — eligible work runs at ~50% off.
+
+Screening with Haiku filters out-of-scope papers before they reach the more expensive
+extract/verify stages, so cost scales with the papers actually worth extracting.
+
+---
+
+## Knowledge Wiki (OKF)
+
+The `okf/` directory is a **knowledge wiki** in the **Open Knowledge Format** — Google's
+formalization of Andrej Karpathy's "LLM wiki" idea: a directory of cross-linked markdown
+concept documents, each with YAML frontmatter and a markdown body, that is both
+human- and agent-readable.
+
+**Why it matters:** `pdfs/`, `reviews/`, and `duckdb/` are all gitignored because they
+are large and fully regenerable. The committed `okf/` markdown is therefore the
+**durable, version-controlled knowledge layer** — the artifact you share, review, and
+diff over time.
+
+**Structure:**
+
+```
+okf/
+├── papers/            # one page per reviewed paper
+├── health-outcomes/   # concept pages by health outcome
+├── exposures/         # concept pages by climate exposure
+├── resilience/        # concept pages by resilience measure
+├── populations/       # concept pages by vulnerable population
+├── regions/           # concept pages by region
+├── datasets/scorch-reviews.md   # DB column reference (generated from scorch/records.py)
+├── schema/extraction-schema.md  # human-readable schema reference
+├── index.md           # entry point / table of contents
+├── log.md             # build/change log
+└── CONVENTIONS.md     # authoring rules for the wiki
+```
+
+**Rebuild it from the reviews:**
+
+```bash
+python scripts/build_okf.py                  # regenerate okf/ from reviews/
+python scripts/build_okf.py --include-examples
+```
+
+Curated prose lives under a `## Curator notes` heading on each concept page and is
+**preserved across rebuilds**; `synthesize.py` drafts that prose as cited evidence
+syntheses. For authoring rules see [`okf/CONVENTIONS.md`](okf/CONVENTIONS.md), and for
+the condensed agent workflow see [`AGENTS.md`](AGENTS.md).
 
 ---
 
@@ -501,21 +674,34 @@ The system extracts **46 structured data points** organized into sections:
 
 ## Database Schema
 
-### Main Tables
+The DuckDB schema (both DDL and INSERTs) is **generated from `scorch/records.py`**, so the
+columns can never drift from the extraction schema. The legacy hand-maintained converter
+declared 22 columns but inserted only 19 (and used wrong schema paths); this is fixed. The
+full, authoritative column list lives in
+[`okf/datasets/scorch-reviews.md`](okf/datasets/scorch-reviews.md), generated from the same
+source.
+
+### Main Table
 
 #### `reviews` Table
-Core metadata and assessments for each paper.
+One row per paper. Core metadata and assessments.
 
 **Key Columns:**
 - `source_pdf_filename` (PRIMARY KEY) - Original PDF filename
 - `title`, `citation_apa7` - Bibliographic info
-- `publication_year` - Publication year
+- `publication_year` - Stored as **VARCHAR** (the schema allows an integer or `"N/A"`);
+  query with `TRY_CAST(publication_year AS INTEGER)`
 - `spatial_scale` - Study geographic scale
-- `geographic_areas[]` - Array of locations
+- `geographic_areas` (VARCHAR[]) - Array of locations
 - `study_design` - Research design type
 - `relevance_rating` - High/Medium/Low
 - `paper_summary` - Paper summary text
 - `conclusions_summary` - Key conclusions
+- `extraction_model`, `extraction_date` - Provenance recorded during extraction
+
+### Child Tables
+
+Each row carries a foreign key `source_pdf_filename` back to `reviews`.
 
 #### `health_outcome_variables` Table
 Health outcomes tracked in studies.
@@ -562,6 +748,24 @@ Statistical relationships reported.
 - `significance` - P-value or significance level
 - `confidence_interval` - CI range
 
+### Category Tables (long format)
+
+Three long-format tables store the boolean category checkboxes as one
+`(source_pdf_filename, category)` row per selected category. This turns
+"which papers study heat?" into a simple `JOIN`:
+
+- `health_outcome_categories` - selected health-outcome categories
+- `exposure_categories` - selected climate-exposure categories
+- `resilience_categories` - selected resilience-measure categories
+
+```sql
+-- Which papers study heat?
+SELECT r.title
+FROM reviews r
+JOIN exposure_categories e ON e.source_pdf_filename = r.source_pdf_filename
+WHERE e.category = 'heat';
+```
+
 ### Relationships
 
 ```
@@ -570,17 +774,22 @@ reviews (1) ──< (N) health_outcome_variables
         (1) ──< (N) cofactor_variables
         (1) ──< (N) vulnerable_populations
         (1) ──< (N) correlations
+        (1) ──< (N) health_outcome_categories
+        (1) ──< (N) exposure_categories
+        (1) ──< (N) resilience_categories
 ```
 
 ---
 
 ## Querying Your Data
 
-### Method 1: Natural Language (Recommended)
+### Method 1: Natural Language → SQL (Recommended)
 
 ```bash
 python scripts/query_literature.py
 ```
+
+Generates and runs SQL against the DuckDB database from plain-English questions.
 
 **Example questions:**
 - "Show me all papers published after 2020"
@@ -589,7 +798,18 @@ python scripts/query_literature.py
 - "Give me papers about heat exposure with high relevance"
 - "What climate variables are most frequently studied?"
 
-### Method 2: Direct SQL
+### Method 2: Citation-Grounded Q&A (`ask_papers.py`)
+
+```bash
+python scripts/ask_papers.py "What adaptations reduce heat risk in arid cities?"
+```
+
+Answers from the **full text of the PDFs** with inline citations (Files API + citations
+enabled), falling back to the extracted review summaries when no PDFs are present. Best
+for evidence questions where you want sources, not aggregate counts. Flags: `--max-papers`,
+`--dry-run`.
+
+### Method 3: Direct SQL
 
 ```bash
 # Open DuckDB CLI
@@ -600,16 +820,17 @@ duckdb duckdb/scorch_reviews.duckdb
 
 ```sql
 -- Papers by publication year
-SELECT publication_year, COUNT(*) as count
+-- publication_year is VARCHAR (may be "N/A"); cast for numeric ordering.
+SELECT TRY_CAST(publication_year AS INTEGER) AS year, COUNT(*) AS count
 FROM reviews
-GROUP BY publication_year
-ORDER BY publication_year DESC;
+GROUP BY year
+ORDER BY year DESC;
 
 -- High relevance papers
 SELECT title, relevance_rating, publication_year
 FROM reviews
 WHERE relevance_rating = 'High'
-ORDER BY publication_year DESC;
+ORDER BY TRY_CAST(publication_year AS INTEGER) DESC;
 
 -- Most common health outcomes
 SELECT variable, COUNT(*) as frequency
@@ -622,7 +843,13 @@ LIMIT 10;
 SELECT DISTINCT r.title, vp.population_group, vp.vulnerability_reasons
 FROM reviews r
 JOIN vulnerable_populations vp ON r.source_pdf_filename = vp.source_pdf_filename
-ORDER BY r.publication_year DESC;
+ORDER BY TRY_CAST(r.publication_year AS INTEGER) DESC;
+
+-- Which papers study heat? (long-format category table → simple JOIN)
+SELECT r.title
+FROM reviews r
+JOIN exposure_categories e ON e.source_pdf_filename = r.source_pdf_filename
+WHERE e.category = 'heat';
 
 -- Climate variables by study design
 SELECT r.study_design, cv.variable, COUNT(*) as count
@@ -632,7 +859,7 @@ GROUP BY r.study_design, cv.variable
 ORDER BY count DESC;
 ```
 
-### Method 3: Python/Programmatic
+### Method 4: Python/Programmatic
 
 ```python
 import duckdb
@@ -655,7 +882,7 @@ for title, year, rating in results:
 con.close()
 ```
 
-### Method 4: Export to Other Formats
+### Method 5: Export to Other Formats
 
 ```bash
 # Export to CSV
@@ -712,17 +939,14 @@ python scripts/convert_to_duckdb.py
 - Try processing single PDF first to isolate issue
 - Check schema version matches expected format
 
-#### Memory Issues with Batch Processing
+#### Memory / Rate-Limit Issues with Batch Processing
 
-**Error:** System runs out of memory
+**Error:** System runs out of memory, or you hit API rate limits
 
-**Solution:**
-```python
-# Edit scripts/batch_process_pdfs.py line 234
-batch_size = 2  # Reduce from default 4
-
-# Or process one at a time
-batch_size = 1
+**Solution:** lower the concurrency via the environment variable (no code edits):
+```bash
+SCORCH_BATCH_CONCURRENCY=2 python scripts/batch_process_pdfs.py   # reduce from default 4
+SCORCH_BATCH_CONCURRENCY=1 python scripts/batch_process_pdfs.py   # one at a time
 ```
 
 #### PDF Reading Errors
@@ -853,17 +1077,26 @@ python scripts/query_literature.py "Show me papers added this week" > reports/we
 
 ## Advanced Usage
 
-### Custom Batch Sizes
+### Custom Batch Concurrency
 
-Edit `scripts/batch_process_pdfs.py`:
-```python
-# Line 234
-batch_size = 8  # Increase for more parallelism (requires more memory)
+Set the environment variable (no code edits needed):
+```bash
+SCORCH_BATCH_CONCURRENCY=8 python scripts/batch_process_pdfs.py   # more parallelism, more memory/RPM
+```
+
+### Custom Model Selection
+
+Override any stage of the cascade per-run; see [Models & Cost](#models--cost):
+```bash
+SCORCH_EXTRACT_MODEL=claude-opus-4-8 python scripts/batch_process_pdfs.py
 ```
 
 ### Custom Schema Modifications
 
-Edit `schema/scorch_extraction_schema.json` to add/modify questions. Both interactive and SDK scripts automatically load the current schema.
+Edit `schema/scorch_extraction_schema.json` to add/modify questions. The shared
+`scorch/` package and all scripts load the current schema automatically. If you add a
+field that should land in the DB, add it to the field list in `scorch/records.py` (the
+DDL and INSERTs are generated from there).
 
 ### Database Backup
 
@@ -908,8 +1141,10 @@ df.show()
 ### Adding New Features
 
 1. **New extraction fields**: Edit `schema/scorch_extraction_schema.json`
-2. **New database columns**: Update `scripts/convert_to_duckdb.py` schema
+2. **New database columns**: Add the field to the field list in `scorch/records.py`
+   (DDL and INSERTs are generated from it — do not hand-edit a column list)
 3. **New analysis queries**: Add to `scripts/query_literature.py` examples
+4. **New wiki content**: Curate under `## Curator notes`; see `okf/CONVENTIONS.md`
 
 ### Code Style
 
@@ -947,14 +1182,19 @@ python scripts/query_literature.py "SELECT COUNT(*) FROM reviews"
 
 - **Memory**: 2GB minimum, 8GB+ recommended for large batches
 - **Storage**: ~50KB per JSON review, ~10MB per 100 papers in database
-- **API costs**: ~$0.30-$1.50 per PDF depending on length (Claude Sonnet 4.5)
+- **API costs**: roughly a few dimes to ~$1.50 per PDF (Sonnet 4.6, ~$3/$15 per 1M
+  input/output tokens), **before** discounts. Prompt caching of the schema prefix
+  (~90% cheaper on the cached portion) and the Batch API (~50% off) reduce this
+  substantially; Haiku screening drops out-of-scope papers before they incur extract cost.
+  See [Models & Cost](#models--cost).
 
 ### Optimization Tips
 
-1. **Batch processing**: Use SDK scripts for >5 PDFs
-2. **Parallel execution**: Adjust batch_size based on available RAM
-3. **Database queries**: Use indexes on frequently queried columns
-4. **API costs**: Process during off-peak hours if running large batches
+1. **Screen first**: `--screen` filters out-of-scope papers with cheap Haiku before extraction
+2. **Batch processing**: Use SDK scripts for >5 PDFs
+3. **Parallel execution**: Tune `SCORCH_BATCH_CONCURRENCY` for available RAM / rate limits
+4. **Caching & Batch API**: Reuse the cached schema prefix; run eligible work via the Batch API
+5. **Database queries**: Use indexes on frequently queried columns
 
 ---
 
@@ -966,7 +1206,7 @@ If you use this system in your research, please cite:
 @software{scorch_lit_review,
   title={SCORCH Literature Review System},
   author={Southwest Center on Resilience for Climate Change and Health},
-  year={2024},
+  year={2026},
   url={https://github.com/your-repo/scorch_lit_review}
 }
 ```
@@ -975,7 +1215,7 @@ If you use this system in your research, please cite:
 
 ## License
 
-[Add your license here]
+MIT — see [LICENSE](LICENSE).
 
 ---
 
@@ -991,13 +1231,17 @@ For issues, questions, or contributions:
 ## Acknowledgments
 
 Powered by:
-- **Claude AI** (Anthropic) - AI extraction and analysis
+- **Claude** (Anthropic) - Tiered extraction, verification, synthesis, and analysis
 - **DuckDB** - High-performance analytical database
+- **Open Knowledge Format (OKF)** - Cross-linked markdown knowledge wiki
 - **Python** - Scripting and automation
+
+Methodologically inspired by PRISMA (screening), STORM (cited synthesis), and PaperQA2
+(citation-grounded Q&A) — re-implemented natively here, not vendored.
 
 Developed for the **Southwest Center on Resilience for Climate Change and Health (SCORCH)** research initiative.
 
 ---
 
-**Last Updated:** 2024-12-17
-**Version:** 1.1
+**Last Updated:** 2026-06-16
+**Version:** 2.0

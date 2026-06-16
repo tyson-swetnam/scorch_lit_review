@@ -1,179 +1,123 @@
 # SCORCH SDK Scripts
 
-Standalone Python scripts for batch processing PDFs and managing the literature review database using the Claude SDK.
+Standalone Python scripts for the SCORCH pipeline. They share the `scorch/`
+package (`config`, `records`, `okf`) as the single source of truth for models,
+paths, and the schema↔database mapping.
 
 ## Prerequisites
 
 ```bash
-pip install anthropic duckdb
-export ANTHROPIC_API_KEY='your-api-key-here'
+pip install -r requirements.txt          # anthropic, duckdb, jsonschema, pydantic, PyYAML
+export ANTHROPIC_API_KEY='your-api-key'  # only for the API-using scripts
 ```
+
+Models are a tiered cascade configured in `scorch/config.py` (override per stage
+with `SCORCH_SCREEN_MODEL` / `SCORCH_EXTRACT_MODEL` / `SCORCH_VERIFY_MODEL` /
+`SCORCH_SYNTHESIS_MODEL`):
+
+| Stage | Default |
+|-------|---------|
+| Screen | `claude-haiku-4-5` |
+| Extract | `claude-sonnet-4-6` |
+| Verify / synthesize | `claude-opus-4-8` |
 
 ## Scripts
 
-### 1. batch_process_pdfs.py
+### batch_process_pdfs.py  *(needs API key)*
+Tiered extraction of `pdfs/*.pdf` → `reviews/*_review.json`.
+- Uploads each PDF once via the **Files API**; references it by `file_id` across stages.
+- **Prompt caching** on the large schema/system prefix (~90% cheaper prefix).
+- **Validates** each extraction against the schema with a one-shot repair pass.
+- Records provenance (model, token usage, est. cost) in `extraction_metadata`.
 
-Batch processes PDFs using direct Claude API calls with parallel execution.
-
-**Features:**
-- Processes 4 PDFs concurrently (configurable batch size)
-- Each PDF gets independent 1M token context
-- Incremental processing (skips already-reviewed PDFs)
-- Automatic JSON validation and error handling
-
-**Usage:**
 ```bash
-python scripts/batch_process_pdfs.py
+python scripts/batch_process_pdfs.py --screen --verify   # full pipeline
+python scripts/batch_process_pdfs.py --dry-run           # list work, no API calls
+```
+Flags: `--screen` (Haiku include/exclude gate), `--verify` (Opus audit), `--dry-run`.
+
+### convert_to_duckdb.py  *(no API key)*
+`reviews/*.json` → DuckDB + Parquet. DDL and INSERTs are generated from
+`scorch/records.py`, and every review is validated with `jsonschema` (invalid
+ones are reported and skipped).
+
+```bash
+python scripts/convert_to_duckdb.py            # incremental
+python scripts/convert_to_duckdb.py --rebuild  # drop & rebuild
+python scripts/convert_to_duckdb.py --strict   # abort on first validation error
 ```
 
-**Output:**
-- Creates `reviews/*_review.json` for each PDF
-- Reports success/error status for each file
-- Shows batch progress and final summary
+**Tables:** `reviews` (PK `source_pdf_filename`); child tables
+`health_outcome_variables`, `climate_weather_variables`, `cofactor_variables`,
+`vulnerable_populations`, `correlations`; long-format category tables
+`health_outcome_categories`, `exposure_categories`, `resilience_categories`.
+Full column list: `okf/datasets/scorch-reviews.md`. Note `publication_year` is
+VARCHAR — query with `TRY_CAST(publication_year AS INTEGER)`.
 
----
+### build_okf.py  *(no API key)*
+`reviews/*.json` → the OKF knowledge wiki under `okf/` (paper + concept pages,
+`index.md`, `log.md`). Idempotent; preserves `## Curator notes` prose.
 
-### 2. convert_to_duckdb.py
-
-Converts JSON review files to DuckDB database with incremental updates.
-
-**Features:**
-- Incremental updates (only adds new reviews)
-- No API key required (pure Python/DuckDB)
-- Automatic schema creation
-- Exports to Parquet format
-
-**Usage:**
 ```bash
-python scripts/convert_to_duckdb.py
+python scripts/build_okf.py                  # from reviews/
+python scripts/build_okf.py --include-examples
 ```
 
-**Output:**
-- Updates `duckdb/scorch_reviews.duckdb`
-- Exports `duckdb/scorch_reviews.parquet`
-- Reports new vs. existing reviews
+### synthesize.py  *(needs API key)*
+STORM-inspired: writes inline-cited evidence syntheses into OKF concept pages
+under `## Curator notes`.
 
-**Database Schema:**
-- `reviews` - Main table with metadata and assessments
-- `health_outcome_variables` - Health outcomes tracked
-- `climate_weather_variables` - Climate variables analyzed
-- `cofactor_variables` - Confounding factors
-- `vulnerable_populations` - Population groups identified
-- `correlations` - Statistical relationships reported
+```bash
+python scripts/synthesize.py --dimension exposures --concept heat
+python scripts/synthesize.py --all --dry-run
+```
 
----
+### ask_papers.py  *(needs API key)*
+PaperQA2-inspired: citation-grounded Q&A over the PDFs (Files API + citations),
+falling back to extracted review summaries when no PDFs are present.
 
-### 3. query_literature.py
+```bash
+python scripts/ask_papers.py "How does extreme heat affect mortality in Phoenix?"
+python scripts/ask_papers.py --max-papers 4 "What adaptations reduce heat risk?"
+```
 
-Interactive database analyst powered by Claude for natural language queries.
+### query_literature.py  *(needs API key)*
+Natural-language → SQL over the DuckDB database (interactive or single-query).
 
-**Features:**
-- Ask questions in plain English
-- Automatic SQL generation and execution
-- Conversational context maintained
-- Single query or interactive mode
-
-**Usage:**
-
-Interactive mode:
 ```bash
 python scripts/query_literature.py
+python scripts/query_literature.py "How many papers per year?"
 ```
-
-Single query mode:
-```bash
-python scripts/query_literature.py "How many papers were published each year?"
-```
-
-**Example Questions:**
-- "What tables are in the database?"
-- "How many papers have high relevance ratings?"
-- "Show me the most common health outcomes"
-- "Which papers focus on vulnerable populations?"
-- "Give me papers published after 2020 about heat exposure"
-
----
 
 ## Complete Workflow
 
-### Full Pipeline
 ```bash
-# 1. Add PDFs to pdfs/ directory
-
-# 2. Extract data from all PDFs
-python scripts/batch_process_pdfs.py
-
-# 3. Convert to database
+# 1. Add PDFs to pdfs/
+# 2. Extract (screen + verify)
+python scripts/batch_process_pdfs.py --screen --verify
+# 3. Load the database
 python scripts/convert_to_duckdb.py
-
-# 4. Query the data
-python scripts/query_literature.py
+# 4. Rebuild the knowledge wiki
+python scripts/build_okf.py
+# 5. Analyze
+python scripts/query_literature.py "Show me high-relevance heat papers"
 ```
 
-### Incremental Updates
-```bash
-# Add new PDFs to pdfs/ directory
-
-# Process only new PDFs
-python scripts/batch_process_pdfs.py
-
-# Add only new reviews to database
-python scripts/convert_to_duckdb.py
-```
-
----
-
-## Comparison: SDK Scripts vs. Claude Code Agents
-
-| Feature | SDK Scripts | Claude Code Agents |
-|---------|-------------|-------------------|
-| **Execution** | Standalone Python | Within Claude Code session |
-| **API Key** | Required (env var) | Managed by Claude Code |
-| **Batch Processing** | Native parallel execution | Sequential or manual |
-| **Context** | 1M per PDF | Shared session context |
-| **Interactivity** | Command-line only | Full Claude Code tools |
-| **Automation** | Ideal for cron jobs | Interactive workflow |
-
-**Use SDK Scripts when:**
-- Processing large batches of PDFs
-- Running automated pipelines
-- Deploying on servers/CI systems
-- Maximizing parallel throughput
-
-**Use Claude Code Agents when:**
-- Working interactively
-- Debugging extractions
-- One-off PDF analysis
-- Leveraging full Claude Code toolset
-
----
+All steps are incremental — re-running only processes what's new.
 
 ## Troubleshooting
 
-**API Key Error:**
-```bash
-export ANTHROPIC_API_KEY='sk-ant-...'
-```
-
-**Database Not Found:**
-Run `convert_to_duckdb.py` first to create the database.
-
-**JSON Parse Errors:**
-Check `reviews/*_debug.txt` files for raw responses.
-
-**Memory Issues:**
-Reduce batch size in `batch_process_pdfs.py` (line 234):
-```python
-batch_size = 2  # Lower from default 4
-```
-
----
+- **API key error:** `export ANTHROPIC_API_KEY='sk-ant-...'`.
+- **`duckdb has no attribute 'connect'`:** the top-level `duckdb/` data dir is
+  shadowing the library. The scripts import `duckdb` before adding the repo root
+  to `sys.path`; if you write your own, do the same.
+- **Validation failures:** the converter prints the schema violation per file;
+  fix the review JSON at the source (don't relax `scorch/records.py`).
+- **Database not found:** run `convert_to_duckdb.py` first.
 
 ## Development
 
-All scripts use:
-- **Model:** `claude-sonnet-4-5-20250929`
-- **Temperature:** 0.0 (deterministic)
-- **Schema:** `schema/scorch_extraction_schema.json`
-
-To modify extraction behavior, edit the schema file. Scripts automatically load the current schema.
+- Models/paths/cost: `scorch/config.py`.
+- Schema↔row mapping: `scorch/records.py` (single source of truth — edit here,
+  never hand-write column lists).
+- Extraction contract: `schema/scorch_extraction_schema.json`.

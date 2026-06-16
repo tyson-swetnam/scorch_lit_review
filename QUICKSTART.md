@@ -1,237 +1,131 @@
 # SCORCH Quick Start Guide
 
-Fast reference for common tasks. See [README.md](README.md) for detailed documentation.
+Fast reference. See [README.md](README.md) for full docs, [CLAUDE.md](CLAUDE.md)
+/ [AGENTS.md](AGENTS.md) for agent conventions, and
+[okf/CONVENTIONS.md](okf/CONVENTIONS.md) for the knowledge wiki.
 
 ---
 
-## Setup (First Time Only)
+## Setup (first time)
 
 ```bash
-# Install dependencies
-pip install anthropic duckdb
-
-# Set API key
-export ANTHROPIC_API_KEY='your-key-here'
-
-# Add to ~/.bashrc for persistence
-echo "export ANTHROPIC_API_KEY='your-key-here'" >> ~/.bashrc
+pip install -r requirements.txt
+export ANTHROPIC_API_KEY='your-key-here'      # only for API-using steps
+echo "export ANTHROPIC_API_KEY='your-key'" >> ~/.bashrc   # persist
 ```
+
+Models (tiered) are set in `scorch/config.py`: Haiku 4.5 screen → Sonnet 4.6
+extract → Opus 4.8 verify/synthesize. Override with `SCORCH_*_MODEL` env vars.
 
 ---
 
 ## Common Workflows
 
-### 🚀 Process New PDFs (Batch)
-
+### 🚀 Process new PDFs (batch)
 ```bash
-# 1. Add PDFs
 cp /path/to/papers/*.pdf pdfs/
-
-# 2. Extract
-python scripts/batch_process_pdfs.py
-
-# 3. Build database
-python scripts/convert_to_duckdb.py
-
-# 4. Query
-python scripts/query_literature.py
+python scripts/batch_process_pdfs.py --screen --verify   # extract (Files API + validation)
+python scripts/convert_to_duckdb.py                      # load DuckDB (validated)
+python scripts/build_okf.py                              # rebuild the OKF wiki
+python scripts/query_literature.py                       # analyze
 ```
 
-### 🔍 Query Existing Database
-
+### 🔍 Query the database
 ```bash
-# Interactive mode
-python scripts/query_literature.py
-
-# Single query
-python scripts/query_literature.py "How many papers by year?"
-
-# Direct SQL
-duckdb duckdb/scorch_reviews.duckdb
-> SELECT title FROM reviews LIMIT 5;
+python scripts/query_literature.py "How many papers per year?"   # NL → SQL
+duckdb duckdb/scorch_reviews.duckdb                              # direct SQL
 ```
 
-### 📊 Common Queries
+### 📚 Citation-grounded Q&A over the PDFs
+```bash
+python scripts/ask_papers.py "What adaptations reduce heat-related mortality?"
+```
 
-**In query_literature.py:**
+### 🧠 Draft cited synthesis into the wiki
+```bash
+python scripts/synthesize.py --all          # writes under "## Curator notes"
+```
+
+### 🤖 Interactive (Claude Code agents)
+`scorch-screener` → `scorch-pdf-analyzer` → `scorch-verifier`
+→ `duckdb-schema-converter` → `duckdb-literature-analyst`.
+
+---
+
+## Common queries
+
+**Natural language (`query_literature.py`):**
 ```
 How many papers were published each year?
 Show me papers with high relevance ratings
-What are the most common health outcomes studied?
-Which papers focus on vulnerable populations?
-Give me papers about heat exposure
-Show papers published after 2020
-What climate models are used in projections?
+Which papers study heat exposure? vulnerable populations?
 ```
 
 **Direct SQL:**
 ```sql
--- Papers by year
-SELECT publication_year, COUNT(*) FROM reviews GROUP BY publication_year;
+-- Papers per year (publication_year is VARCHAR)
+SELECT TRY_CAST(publication_year AS INTEGER) AS yr, COUNT(*)
+FROM reviews GROUP BY yr ORDER BY yr DESC;
 
--- High relevance papers
+-- Which papers study heat? (category tables make this a JOIN)
+SELECT r.title FROM reviews r
+JOIN exposure_categories e ON e.source_pdf_filename = r.source_pdf_filename
+WHERE e.category = 'heat';
+
+-- High-relevance papers
 SELECT title, citation_apa7 FROM reviews WHERE relevance_rating = 'High';
-
--- Top health outcomes
-SELECT variable, COUNT(*) FROM health_outcome_variables GROUP BY variable ORDER BY COUNT(*) DESC LIMIT 10;
-
--- Papers with vulnerable populations
-SELECT DISTINCT r.title FROM reviews r JOIN vulnerable_populations vp ON r.source_pdf_filename = vp.source_pdf_filename;
 ```
 
 ---
 
 ## File Locations
 
-| Path | Contents |
-|------|----------|
-| `pdfs/` | **INPUT:** Place PDF articles here |
-| `reviews/` | **OUTPUT:** JSON extraction files |
-| `duckdb/scorch_reviews.duckdb` | **OUTPUT:** Main database |
-| `duckdb/scorch_reviews.parquet` | **OUTPUT:** Parquet export |
-| `schema/scorch_extraction_schema.json` | Extraction schema definition |
+| Path | Contents | Tracked? |
+|------|----------|----------|
+| `pdfs/` | INPUT: PDF articles | gitignored |
+| `reviews/` | JSON extractions | gitignored (regenerable) |
+| `duckdb/` | Database + Parquet | gitignored (regenerable) |
+| `okf/` | **Knowledge wiki (durable, committed)** | ✅ tracked |
+| `schema/scorch_extraction_schema.json` | Extraction contract | ✅ |
+| `scorch/` | Shared library (source of truth) | ✅ |
 
 ---
 
 ## Key Scripts
 
-| Script | Purpose | API Key? |
+| Script | Purpose | API key? |
 |--------|---------|----------|
-| `batch_process_pdfs.py` | Extract PDFs → JSON | ✓ Required |
-| `convert_to_duckdb.py` | JSON → Database | ✗ Not needed |
-| `query_literature.py` | Natural language queries | ✓ Required |
+| `batch_process_pdfs.py` | Extract PDFs → JSON (`--screen`/`--verify`/`--dry-run`) | ✓ |
+| `convert_to_duckdb.py` | JSON → DuckDB (validated; `--rebuild`/`--strict`) | ✗ |
+| `build_okf.py` | Reviews → OKF wiki (`--include-examples`) | ✗ |
+| `synthesize.py` | Cited synthesis → wiki | ✓ |
+| `ask_papers.py` | Citation-grounded Q&A | ✓ |
+| `query_literature.py` | NL → SQL | ✓ |
 
 ---
 
 ## Troubleshooting
 
-### "ANTHROPIC_API_KEY not found"
-```bash
-export ANTHROPIC_API_KEY='your-key'
-```
-
-### "Database not found"
-```bash
-python scripts/convert_to_duckdb.py
-```
-
-### "No new reviews to process"
-```bash
-# Already processed! Check:
-ls reviews/
-```
-
-### Out of memory
-```python
-# Edit scripts/batch_process_pdfs.py line 234:
-batch_size = 2  # Lower from 4
-```
+| Problem | Fix |
+|---------|-----|
+| `ANTHROPIC_API_KEY not found` | `export ANTHROPIC_API_KEY='sk-ant-...'` |
+| `Database not found` | `python scripts/convert_to_duckdb.py` |
+| `duckdb has no attribute 'connect'` | `duckdb/` dir shadowing the library — run scripts as `python scripts/x.py` |
+| Schema validation failures | Converter prints the violation per file; fix the review JSON |
+| Want fewer parallel calls | `export SCORCH_BATCH_CONCURRENCY=2` |
 
 ---
 
-## Status Checks
+## Status checks
 
 ```bash
-# PDFs ready to process
-ls pdfs/*.pdf | wc -l
-
-# Reviews completed
-ls reviews/*_review.json | wc -l
-
-# Database stats
-duckdb duckdb/scorch_reviews.duckdb << EOF
-SELECT COUNT(*) as total_papers FROM reviews;
-SELECT relevance_rating, COUNT(*) FROM reviews GROUP BY relevance_rating;
-EOF
+ls pdfs/*.pdf | wc -l        # PDFs to process
+ls reviews/*_review.json | wc -l   # reviews done
+duckdb duckdb/scorch_reviews.duckdb -c "SELECT relevance_rating, COUNT(*) FROM reviews GROUP BY 1"
+cat okf/index.md             # wiki catalog
 ```
 
 ---
 
-## Export Data
-
-```bash
-# CSV
-duckdb duckdb/scorch_reviews.duckdb << EOF
-COPY (SELECT * FROM reviews) TO 'output.csv' (HEADER, DELIMITER ',');
-EOF
-
-# JSON
-duckdb duckdb/scorch_reviews.duckdb << EOF
-COPY (SELECT * FROM reviews) TO 'output.json';
-EOF
-
-# Parquet (already available)
-cp duckdb/scorch_reviews.parquet /path/to/destination/
-```
-
----
-
-## Daily Workflow
-
-```bash
-# Morning: Add new PDFs
-cp ~/Downloads/new_papers/*.pdf pdfs/
-
-# Extract
-python scripts/batch_process_pdfs.py
-
-# Update database
-python scripts/convert_to_duckdb.py
-
-# Analyze
-python scripts/query_literature.py "Show me the new papers"
-```
-
----
-
-## Backup
-
-```bash
-# Backup database
-cp duckdb/scorch_reviews.duckdb backups/scorch_$(date +%Y%m%d).duckdb
-
-# Backup reviews
-tar -czf backups/reviews_$(date +%Y%m%d).tar.gz reviews/
-```
-
----
-
-## Performance Tips
-
-- **<5 PDFs:** Use interactive agents in Claude Code
-- **5-20 PDFs:** Use SDK batch scripts
-- **20+ PDFs:** Increase batch_size to 8, ensure 16GB+ RAM
-- **100+ PDFs:** Process in chunks, run overnight
-
----
-
-## Getting Help
-
-1. **Full documentation:** [README.md](README.md)
-2. **SDK scripts guide:** [scripts/README.md](scripts/README.md)
-3. **Schema reference:** [schema/scorch_extraction_schema.json](schema/scorch_extraction_schema.json)
-4. **Claude Code guide:** [CLAUDE.md](CLAUDE.md)
-
----
-
-## Database Schema Quick Reference
-
-**Main Table:** `reviews`
-- `source_pdf_filename` (PK)
-- `title`, `citation_apa7`
-- `publication_year`
-- `relevance_rating` (High/Medium/Low)
-- `paper_summary`, `conclusions_summary`
-
-**Related Tables:**
-- `health_outcome_variables` - Health outcomes
-- `climate_weather_variables` - Climate variables
-- `cofactor_variables` - Confounders
-- `vulnerable_populations` - At-risk groups
-- `correlations` - Statistical findings
-
-All tables join on `source_pdf_filename`.
-
----
-
-**Need more detail?** See [README.md](README.md) for comprehensive documentation.
+**Need more?** [README.md](README.md) · [scripts/README.md](scripts/README.md) ·
+[schema](schema/scorch_extraction_schema.json) · [wiki conventions](okf/CONVENTIONS.md)
