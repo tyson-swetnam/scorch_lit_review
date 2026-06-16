@@ -50,23 +50,35 @@ Systematically analyze PDF documents from the `pdfs/` folder and generate detail
 3. **Track progress**: Maintain metadata on completion status
 4. **Validate completeness**: Ensure all required fields are populated
 
-### Phase 4: Database Integration
+### Phase 3.5: Validate
+Before declaring the review complete, sanity-check it against
+`schema/scorch_extraction_schema.json`: every enum value must be in range, every
+required field present, arrays/booleans/nulls used per the N/A policy. (The
+`convert_to_duckdb.py` step validates with `jsonschema` and will reject invalid
+reviews — catching issues here saves a round trip.)
+
+### Phase 4: Verify, Database, and Wiki
 After completing the JSON review file:
-1. **Notify about database update**: Inform the user that the review is ready to be added to the database
-2. **Recommend next step**: Suggest running the `duckdb-schema-converter` agent to update the DuckDB database
-3. **Provide summary**: Include the filename and key metrics (relevance rating, study design, etc.)
+1. **Recommend a verification pass**: Suggest running the `scorch-verifier` agent
+   (independent Opus audit against the PDF) before trusting the extraction.
+2. **Update the database**: Run `duckdb-schema-converter` (or
+   `python scripts/convert_to_duckdb.py`) to add the review and refresh Parquet.
+3. **Rebuild the knowledge wiki**: Run `python scripts/build_okf.py` to project
+   the new review into the cross-linked OKF pages under `okf/`.
+4. **Provide summary**: filename + key metrics (relevance rating, study design).
 
 ## Automated Pipeline Integration
 
-This agent is part of an automated literature review pipeline:
+This agent is one stage of a tiered pipeline:
 
 ```
-pdfs/ → scorch-pdf-analyzer → reviews/ → duckdb-schema-converter → duckdb/
+pdfs/ → scorch-screener → scorch-pdf-analyzer → scorch-verifier
+      → convert_to_duckdb.py → duckdb/ → build_okf.py → okf/
 ```
 
-After completing a review, the `duckdb-schema-converter` agent should be invoked to:
-- Add the new review to `duckdb/scorch_reviews.duckdb`
-- Update the Parquet export at `duckdb/scorch_reviews.parquet`
+- `scorch-screener` (Haiku) cheaply gates on Q1-Q2 before you extract.
+- `scorch-verifier` (Opus) independently audits your output.
+- The SDK equivalent is `scripts/batch_process_pdfs.py --screen --verify`.
 
 ## Incremental Saving Protocol
 To protect against context window limitations:
