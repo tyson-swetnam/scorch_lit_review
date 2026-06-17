@@ -1,0 +1,201 @@
+{
+  "screening": {
+    "focuses_on_arid_semiarid_sw_us_mexico": true,
+    "includes_primary_data_for_region": true
+  },
+  "metadata": {
+    "title": "EXAMPLE (synthetic) — Extreme heat and all-cause mortality in metropolitan Phoenix, Arizona",
+    "citation_apa7": "Example, A., & Sample, B. (2024). Extreme heat and all-cause mortality in metropolitan Phoenix, Arizona [Synthetic example record]. Journal of Arid Climate Health, 12(3), 200-215."
+  },
+  "spatial_temporal": {
+    "spatial_scale": "City",
+    "geographic_areas": ["Phoenix, Arizona", "Maricopa County, Arizona"],
+    "publication_year": 2024,
+    "data_date_earliest": "01/01/2010",
+    "data_date_latest": "12/31/2022"
+  },
+  "study_characteristics": {
+    "setting": "Urban",
+    "setting_other": "N/A",
+    "arid_semiarid_classification": "Yes",
+    "study_design": "Temporal Analysis of Surveillance Data",
+    "study_design_other": "N/A"
+  },
+  "data_tables": {
+    "health_outcome_variables": [
+      {"variable": "All-cause mortality", "spatial_resolution": "County", "data_source": "State vital statistics registry"},
+      {"variable": "Heat-related emergency department visits", "spatial_resolution": "ZIP code", "data_source": "Syndromic surveillance"}
+    ],
+    "cofactor_variables": [
+      {"variable": "Age (65+)", "spatial_resolution": "County", "data_source": "Census ACS"},
+      {"variable": "Neighborhood income", "spatial_resolution": "Census tract", "data_source": "Census ACS"}
+    ],
+    "climate_weather_variables": [
+      {"variable": "Daily maximum temperature", "spatial_resolution": "Station", "data_source": "NOAA GHCN"},
+      {"variable": "Heat index", "spatial_resolution": "Station", "data_source": "NOAA"}
+    ]
+  },
+  "methods": {
+    "analytical_methods": ["Distributed lag non-linear model", "Quasi-Poisson time-series regression"]
+  },
+  "health_outcomes": {
+    "specific_health_outcomes": ["Heat stroke", "Cardiovascular mortality", "All-cause mortality"],
+    "health_outcome_categories": {
+      "heat": true,
+      "ground_level_ozone_air_pollution": false,
+      "aridity_drought": false,
+      "wind_dust": false,
+      "fire_smoke": false,
+      "extreme_precipitation_flooding": false,
+      "mold": false,
+      "fungi": false,
+      "pollen_environmental_allergens": false,
+      "vectors_vector_habitat": false,
+      "vector_borne_diseases": false,
+      "digestive_infections": false,
+      "respiratory_infections": false,
+      "skin_infections": false,
+      "cardiovascular_conditions": true,
+      "renal_conditions": true,
+      "cancers": false,
+      "pregnancy_fetal_development_birth": false,
+      "mental_health": false,
+      "maternal_health": false,
+      "neurological_conditions": false,
+      "endocrine_impacts": false,
+      "immune_system_impacts_inflammation": false,
+      "autoimmunity": false,
+      "sleep_disturbances": false,
+      "behaviour_violence": false,
+      "compounding_environmental_exposures": false,
+      "water_quality_security": false,
+      "food_insecurity": false,
+      "green_spaces": false,
+      "blue_spaces": false,
+      "built_environment": true,
+      "other": false
+    },
+    "health_outcome_categories_other_specified": []
+  },
+  "exposures": {
+    "direct_exposures": ["Ambient extreme heat exposure (daily Tmax above the 95th percentile)"],
+    "exposure_categories": {
+      "heat": true,
+      "drought_aridification": false,
+      "precipitation": false,
+      "humidity": true,
+      "wind_dust": false,
+      "flooding": false,
+      "extreme_seasonal_weather_fluctuations": true,
+      "green_space": false,
+      "air_pollution": false,
+      "ground_level_ozone": false,
+      "leaching_chemicals_heavy_metals": false,
+      "soil_health": false,
+      "other": false
+    },
+    "exposure_categories_other_specified": []
+  },
+  "demographics": {
+    "population_sample_size": "Approximately 4.5 million residents (Maricopa County)",
+    "sex_demographics_reported": true,
+    "sex_demographics": {
+      "female_percentage": 49.8,
+      "female_count": null,
+      "male_percentage": 50.2,
+      "male_count": null,
+      "other_gender_percentage": null,
+      "other_gender_count": null
+    },
+    "race_ethnicity_reported": true,
+    "race_ethnicity_demographics": [
+      {"group": "Hispanic or Latino", "percentage": 31.0, "count": null},
+      {"group": "Non-Hispanic White", "percentage": 53.0, "count": null}
+    ]
+  },
+  "interventions": {
+    "analyzes_interventions": true,
+    "intervention_description": "Evaluates the association between cooling-center accessibility and reduced heat-related mortality at the census-tract level."
+  },
+  "objectives_met": {
+    "obj_01_climate_health_impacts_arid": "Met",
+    "obj_02_extreme_weather_health": "Met",
+    "obj_03_climate_health_forecasts": "Not Met",
+    "obj_04_vulnerable_communities": "Met",
+    "obj_05_research_gaps": "Partially Met",
+    "obj_06_solutions_adaptations": "Partially Met"
+  },
+  "research_questions": {
+    "q1_extreme_weather_health_impacts": {
+      "addressed": true,
+      "summary": "Days with maximum temperature above the local 95th percentile were associated with a measurable increase in all-cause mortality, concentrated in older and low-income populations."
+    },
+    "q2_future_disease_landscape": {
+      "addressed": false,
+      "summary": "N/A"
+    },
+    "q3_sustainable_solutions": {
+      "addressed": true,
+      "summary": "Greater cooling-center accessibility was associated with attenuated heat-mortality risk, suggesting a scalable adaptation."
+    }
+  },
+  "unquantified_health_impacts": ["Sleep disruption", "Outdoor occupational heat strain"],
+  "associations_effects": {
+    "effect_sizes_reported": true,
+    "effect_narrative": "Each 1 degree C increase in daily Tmax above the 95th percentile was associated with a relative risk of all-cause mortality of RR = 1.04 (95% CI: 1.02-1.06).",
+    "correlations_table": [
+      {"variable": "Daily Tmax (>95th pctile) vs all-cause mortality", "effect_size_correlation": "RR = 1.04 per 1C", "significance": "p < 0.001", "confidence_interval": "(1.02, 1.06)"},
+      {"variable": "Cooling-center access vs heat mortality", "effect_size_correlation": "RR = 0.91", "significance": "p = 0.02", "confidence_interval": "(0.84, 0.99)"}
+    ]
+  },
+  "climate_projections": {
+    "includes_projection_modeling": false,
+    "climate_scenarios": [],
+    "time_horizons": "N/A",
+    "projection_description": "N/A"
+  },
+  "vulnerable_populations": [
+    {"population_group": "Adults aged 65 and older", "vulnerability_reasons": "Reduced thermoregulation and higher prevalence of cardiovascular and renal conditions."},
+    {"population_group": "Low-income outdoor workers", "vulnerability_reasons": "Prolonged occupational heat exposure and limited access to air conditioning."}
+  ],
+  "climate_resilience": {
+    "resilience_categories": {
+      "built_environment": true,
+      "vector_control": false,
+      "heat_mitigation": true,
+      "aridity_mitigation_water_management": false,
+      "green_spaces": true,
+      "blue_spaces": false,
+      "soil_regeneration": false,
+      "energy_systems": false,
+      "closed_systems_systems_thinking": false,
+      "policy_and_law": true,
+      "other": false
+    },
+    "resilience_categories_other_specified": [],
+    "specific_strategies": ["Cooling-center network expansion", "Urban tree-canopy and shade investment", "Heat action plans"],
+    "successful_adaptations": "Census tracts with high cooling-center accessibility showed lower heat-attributable mortality, supporting cooling centers as an effective near-term adaptation."
+  },
+  "relevance_summary": "Synthetic example demonstrating a high-relevance heat-health study in an arid Southwest US city, exercising every section of the schema.",
+  "limitations_gaps": {
+    "limitations": "Ecological time-series design cannot establish individual-level causation; exposure misclassification from station-based temperature.",
+    "data_gaps": "Lack of individual-level air-conditioning access data and sub-daily exposure timing.",
+    "future_research": "Couple individual exposure monitoring with longitudinal cohorts and extend to climate projection scenarios."
+  },
+  "overall_relevance": {
+    "relevance_rating": "High",
+    "relevance_justification": "Directly addresses extreme-heat health impacts and adaptation in an arid SW US metropolitan area, aligning with SCORCH objectives 1, 2, 4, and 6."
+  },
+  "summary": {
+    "paper_summary": "Across 2010-2022 in Maricopa County (~4.5M residents), extreme-heat days were associated with a 4% per-degree increase in all-cause mortality (RR 1.04, 95% CI 1.02-1.06), with the burden concentrated among adults 65+ and low-income outdoor workers.",
+    "conclusions_summary": "Extreme heat is a significant and inequitable driver of mortality in arid Phoenix; expanding cooling-center access is associated with reduced risk and represents a viable adaptation."
+  },
+  "extraction_metadata": {
+    "extraction_date": "2026-06-16",
+    "extractor_agent": "example-fixture (hand-authored, not a real extraction)",
+    "extraction_model": "n/a",
+    "source_pdf_filename": "EXAMPLE_2024_HeatMortalityPhoenix.pdf",
+    "schema_version": "1.1",
+    "notes": "Synthetic record for pipeline/OKF demonstration and testing. Not derived from any real publication."
+  }
+}

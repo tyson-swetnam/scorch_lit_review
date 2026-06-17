@@ -1,248 +1,260 @@
 #!/usr/bin/env python3
-"""
-Batch process PDFs using Claude Agent SDK with independent contexts.
+"""Batch-extract SCORCH reviews from PDFs with a tiered, verified pipeline.
 
-Each PDF gets its own agent with a dedicated 1M token context window,
-allowing for true parallel processing without context sharing.
+Pipeline per PDF (stages are opt-in via flags):
+
+    upload (Files API, once)
+      -> screen   [Haiku 4.5]  cheap include/exclude on the arid-SW gate (--screen)
+      -> extract  [Sonnet 4.6] full 46-field JSON, validated against the schema
+      -> verify   [Opus 4.8]   flags likely hallucinations / N/A-policy violations (--verify)
+
+Modernizations over the original script:
+- Uses current models (Opus 4.8 / Sonnet 4.6 / Haiku 4.5) from scorch.config.
+- Uploads each PDF once via the Files API and references it by file_id across
+  stages (no repeated base64).
+- Caches the large schema/system prefix with prompt caching (~90% cheaper prefix).
+- Validates every extraction against scorch_extraction_schema.json and runs one
+  repair pass on failure, instead of scraping the first {...} and hoping.
+- Records provenance (model, token usage, cost estimate) in extraction_metadata.
+
+Requires ANTHROPIC_API_KEY. Run `--dry-run` to preview work with no API calls.
+
+    export ANTHROPIC_API_KEY=sk-ant-...
+    python scripts/batch_process_pdfs.py --screen --verify
 """
-import os
-import sys
+from __future__ import annotations
+
+import argparse
 import asyncio
 import json
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
 
-# Check if SDK is available
-try:
-    from anthropic import Anthropic
-except ImportError:
-    print("Error: anthropic package not found. Install with: pip install anthropic")
-    sys.exit(1)
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+from scorch import config, records  # noqa: E402
+
+FILES_BETA = "files-api-2025-04-14"
 
 
-class PDFProcessor:
-    """Processes PDFs using independent Claude agent instances"""
+def unprocessed_pdfs() -> list[Path]:
+    done = {p.stem.replace("_review", "") for p in records.iter_review_files(config.REVIEW_DIR)}
+    return [p for p in sorted(config.PDF_DIR.glob("*.pdf")) if p.stem not in done]
 
-    def __init__(self, base_dir: Path):
-        self.base_dir = base_dir
-        self.pdf_dir = base_dir / "pdfs"
-        self.review_dir = base_dir / "reviews"
-        self.schema_path = base_dir / "schema/scorch_extraction_schema.json"
 
-        # Check for API key
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            print("\n" + "="*60)
-            print("ERROR: ANTHROPIC_API_KEY not found")
-            print("="*60)
-            print("\nSet your API key:")
-            print("  export ANTHROPIC_API_KEY='your-key-here'")
-            print("\nOr run within Claude Code using Task tool instead")
-            print("="*60 + "\n")
-            sys.exit(1)
+def extraction_system_prompt(schema: dict) -> list[dict]:
+    """Cached system prefix: instructions + the full schema (stable across PDFs)."""
+    text = (
+        "You are a SCORCH climate-health literature extraction agent. Extract data "
+        "from the attached research PDF into a JSON object that conforms EXACTLY to "
+        "the JSON Schema below.\n\n"
+        "Rules:\n"
+        "1. Use the string \"N/A\" when information is absent — NEVER fabricate.\n"
+        "2. Respect every enum and type; use [] for empty arrays and null for absent numbers.\n"
+        "3. Output ONLY the JSON object — no markdown fences, no commentary.\n\n"
+        "JSON Schema:\n" + json.dumps(schema, indent=2)
+    )
+    # cache_control marks this (large, stable) block as cacheable.
+    return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
 
-        self.client = Anthropic(api_key=api_key)
 
-    def find_unprocessed_pdfs(self):
-        """Find PDFs that don't have corresponding review files"""
-        pdfs = list(self.pdf_dir.glob("*.pdf"))
-        existing_reviews = {
-            r.stem.replace("_review", "")
-            for r in self.review_dir.glob("*_review.json")
-        }
-        unprocessed = [p for p in pdfs if p.stem not in existing_reviews]
-        return unprocessed
+def parse_json_object(text: str) -> dict:
+    """Parse a JSON object from a model response, tolerating stray prose/fences."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("```", 2)[1].lstrip("json").strip() if "```" in text[3:] else text
+    start, end = text.find("{"), text.rfind("}") + 1
+    if start < 0 or end <= start:
+        raise ValueError("no JSON object in response")
+    return json.loads(text[start:end])
 
-    def load_schema(self) -> dict:
-        """Load the SCORCH extraction schema"""
-        with open(self.schema_path, 'r') as f:
-            return json.load(f)
 
-    async def process_single_pdf(self, pdf_path: Path) -> dict:
-        """Process a single PDF with an independent agent instance"""
+def _text(message) -> str:
+    return "".join(b.text for b in message.content if getattr(b, "type", None) == "text")
 
-        review_filename = pdf_path.stem + "_review.json"
-        output_path = self.review_dir / review_filename
 
-        print(f"📄 Processing: {pdf_path.name}")
+def _usage_cost(model: str, usage) -> float:
+    return config.estimate_cost(
+        model,
+        getattr(usage, "input_tokens", 0) + getattr(usage, "cache_read_input_tokens", 0),
+        getattr(usage, "output_tokens", 0),
+    )
 
-        # Load schema
-        schema = self.load_schema()
 
-        # Read PDF as base64
-        import base64
-        with open(pdf_path, 'rb') as f:
-            pdf_data = base64.standard_b64encode(f.read()).decode('utf-8')
+class Pipeline:
+    def __init__(self, client, schema: dict, *, screen: bool, verify: bool):
+        self.client = client
+        self.schema = schema
+        self.system = extraction_system_prompt(schema)
+        self.do_screen = screen
+        self.do_verify = verify
 
-        prompt = f"""You are a SCORCH literature review extraction agent. Analyze this climate-health research PDF and extract structured data according to the schema below.
-
-**SCORCH Extraction Schema:**
-{json.dumps(schema, indent=2)}
-
-**Instructions:**
-1. Read the PDF document carefully
-2. Answer all 46 questions following the schema structure exactly
-3. Use "N/A" when information is not present - NEVER fabricate data
-4. Follow all enum constraints and data types
-5. Include these extraction_metadata fields:
-   - extraction_date: "{datetime.now().strftime("%Y-%m-%d")}"
-   - extractor_agent: "scorch-pdf-analyzer-sdk"
-   - source_pdf_filename: "{pdf_path.name}"
-   - schema_version: "1.1"
-
-**Output:**
-Provide ONLY the complete JSON object following the schema. No markdown, no explanation, just valid JSON.
-"""
-
-        try:
-            # Create message with PDF document - independent context
-            message = self.client.messages.create(
-                model="claude-sonnet-4-5-20250929",
-                max_tokens=16000,
-                temperature=0.0,
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "document",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "application/pdf",
-                                "data": pdf_data
-                            }
-                        },
-                        {
-                            "type": "text",
-                            "text": prompt
-                        }
-                    ]
-                }]
+    async def upload(self, pdf: Path):
+        with open(pdf, "rb") as fh:
+            meta = await self.client.beta.files.upload(
+                file=(pdf.name, fh, "application/pdf"), betas=[FILES_BETA]
             )
+        return meta.id
 
-            # Extract JSON from response
-            response_text = message.content[0].text
+    def _document(self, file_id: str) -> dict:
+        return {"type": "document", "source": {"type": "file", "file_id": file_id}}
 
-            # Try to find JSON in response
-            json_start = response_text.find('{')
-            json_end = response_text.rfind('}') + 1
+    async def screen(self, file_id: str) -> dict:
+        msg = await self.client.beta.messages.create(
+            model=config.SCREEN_MODEL, max_tokens=400, betas=[FILES_BETA],
+            messages=[{"role": "user", "content": [
+                self._document(file_id),
+                {"type": "text", "text":
+                    "Screen this paper for the SCORCH review (arid/semi-arid SW US & "
+                    "northern Mexico climate-health). Reply ONLY as JSON: "
+                    '{"focuses_on_arid_semiarid_sw_us_mexico": bool, '
+                    '"includes_primary_data_for_region": bool, "reason": "one sentence"}'},
+            ]}],
+        )
+        result = parse_json_object(_text(msg))
+        result["_cost"] = _usage_cost(config.SCREEN_MODEL, msg.usage)
+        return result
 
-            if json_start >= 0 and json_end > json_start:
-                json_str = response_text[json_start:json_end]
-                review_data = json.loads(json_str)
+    async def extract(self, file_id: str, pdf_name: str) -> tuple[dict, float]:
+        cost = 0.0
+        prompt = ("Extract the complete SCORCH review JSON for the attached PDF, "
+                  "conforming exactly to the schema in the system prompt.")
+        async with self.client.beta.messages.stream(
+            model=config.EXTRACT_MODEL, max_tokens=config.EXTRACT_MAX_TOKENS,
+            betas=[FILES_BETA], system=self.system,
+            messages=[{"role": "user", "content": [self._document(file_id),
+                                                    {"type": "text", "text": prompt}]}],
+        ) as stream:
+            msg = await stream.get_final_message()
+        cost += _usage_cost(config.EXTRACT_MODEL, msg.usage)
+        data = parse_json_object(_text(msg))
 
-                # Write to file
-                with open(output_path, 'w') as f:
-                    json.dump(review_data, f, indent=2)
+        errors = records.validate_review(data, self.schema)
+        if errors:  # one repair pass
+            repair = ("The JSON failed schema validation. Fix ONLY these issues and "
+                      "return the full corrected JSON object:\n- " + "\n- ".join(errors[:20]))
+            rmsg = await self.client.beta.messages.create(
+                model=config.EXTRACT_MODEL, max_tokens=config.EXTRACT_MAX_TOKENS,
+                betas=[FILES_BETA], system=self.system,
+                messages=[
+                    {"role": "user", "content": [self._document(file_id),
+                                                 {"type": "text", "text": prompt}]},
+                    {"role": "assistant", "content": json.dumps(data)},
+                    {"role": "user", "content": repair},
+                ],
+            )
+            cost += _usage_cost(config.EXTRACT_MODEL, rmsg.usage)
+            data = parse_json_object(_text(rmsg))
 
-                print(f"  ✓ Success: {review_filename} ({len(json_str)} bytes)")
-                return {
-                    "pdf": pdf_path.name,
-                    "status": "success",
-                    "output": str(output_path)
+        self._stamp(data, pdf_name)
+        return data, cost
+
+    async def verify(self, file_id: str, data: dict) -> tuple[dict, float]:
+        msg = await self.client.beta.messages.create(
+            model=config.VERIFY_MODEL, max_tokens=1500, betas=[FILES_BETA],
+            messages=[{"role": "user", "content": [
+                self._document(file_id),
+                {"type": "text", "text":
+                    "Audit this extracted SCORCH review against the PDF. Identify fields "
+                    "that appear fabricated, unsupported, or that should be \"N/A\". Reply "
+                    'ONLY as JSON: {"flags": [{"field": str, "issue": str}], "ok": bool}.\n\n'
+                    + json.dumps(data)},
+            ]}],
+        )
+        audit = parse_json_object(_text(msg))
+        return audit, _usage_cost(config.VERIFY_MODEL, msg.usage)
+
+    def _stamp(self, data: dict, pdf_name: str) -> None:
+        meta = data.setdefault("extraction_metadata", {})
+        meta.update({
+            "extraction_date": datetime.now().strftime("%Y-%m-%d"),
+            "extractor_agent": "scorch-batch-pipeline",
+            "extraction_model": config.EXTRACT_MODEL,
+            "source_pdf_filename": pdf_name,
+            "schema_version": config.SCHEMA_VERSION,
+        })
+
+    async def process(self, pdf: Path) -> dict:
+        out = config.REVIEW_DIR / f"{pdf.stem}_review.json"
+        cost = 0.0
+        try:
+            file_id = await self.upload(pdf)
+
+            if self.do_screen:
+                scr = await self.screen(file_id)
+                cost += scr.pop("_cost", 0.0)
+                if not (scr.get("focuses_on_arid_semiarid_sw_us_mexico")
+                        or scr.get("includes_primary_data_for_region")):
+                    print(f"  ⊘ Screened out: {pdf.name} — {scr.get('reason', '')}")
+                    return {"pdf": pdf.name, "status": "screened_out", "cost": cost}
+
+            data, ecost = await self.extract(file_id, pdf.name)
+            cost += ecost
+
+            if self.do_verify:
+                audit, vcost = await self.verify(file_id, data)
+                cost += vcost
+                data["extraction_metadata"]["verification"] = {
+                    "model": config.VERIFY_MODEL, "ok": audit.get("ok"),
+                    "flags": audit.get("flags", []),
                 }
-            else:
-                print(f"  ✗ Error: No JSON found in response")
-                return {
-                    "pdf": pdf_path.name,
-                    "status": "error",
-                    "error": "No JSON found in response"
-                }
+                if audit.get("flags"):
+                    print(f"  ⚠ {pdf.name}: verifier flagged {len(audit['flags'])} field(s)")
 
-        except json.JSONDecodeError as e:
-            print(f"  ✗ Error: Invalid JSON - {e}")
-            # Save raw response for debugging
-            debug_path = self.review_dir / f"{pdf_path.stem}_debug.txt"
-            with open(debug_path, 'w') as f:
-                f.write(response_text)
-            return {
-                "pdf": pdf_path.name,
-                "status": "error",
-                "error": f"Invalid JSON: {e}"
-            }
-        except Exception as e:
-            print(f"  ✗ Error: {pdf_path.name} - {e}")
-            return {
-                "pdf": pdf_path.name,
-                "status": "error",
-                "error": str(e)
-            }
-
-    async def process_batch(self, pdfs: list, batch_size: int = 4):
-        """Process PDFs in batches with parallel execution"""
-
-        all_results = []
-
-        for i in range(0, len(pdfs), batch_size):
-            batch = pdfs[i:i+batch_size]
-            batch_num = i // batch_size + 1
-            total_batches = (len(pdfs) + batch_size - 1) // batch_size
-
-            print(f"\n{'='*60}")
-            print(f"Batch {batch_num}/{total_batches} - Processing {len(batch)} PDFs in parallel")
-            print(f"{'='*60}")
-
-            # Process batch in parallel - each agent has independent 1M context
-            tasks = [self.process_single_pdf(pdf) for pdf in batch]
-            results = await asyncio.gather(*tasks)
-            all_results.extend(results)
-
-            # Report batch results
-            successes = sum(1 for r in results if r["status"] == "success")
-            print(f"\n📊 Batch {batch_num} complete: {successes}/{len(batch)} succeeded")
-
-        return all_results
-
-    def print_summary(self, results: list):
-        """Print final summary of processing"""
-        total = len(results)
-        successes = sum(1 for r in results if r["status"] == "success")
-        errors = sum(1 for r in results if r["status"] == "error")
-        partial = sum(1 for r in results if r["status"] == "partial")
-
-        print(f"\n{'='*60}")
-        print(f"PROCESSING COMPLETE")
-        print(f"{'='*60}")
-        print(f"Total PDFs: {total}")
-        print(f"  ✓ Success: {successes}")
-        print(f"  ⚠ Partial: {partial}")
-        print(f"  ✗ Errors:  {errors}")
-
-        if errors > 0:
-            print(f"\nFailed PDFs:")
-            for r in results:
-                if r["status"] == "error":
-                    print(f"  - {r['pdf']}: {r.get('error', 'Unknown error')}")
+            data["extraction_metadata"]["estimated_cost_usd"] = round(cost, 4)
+            out.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            print(f"  ✓ {pdf.name} -> {out.name}  (${cost:.3f})")
+            return {"pdf": pdf.name, "status": "success", "cost": cost}
+        except Exception as exc:  # noqa: BLE001 - report and continue the batch
+            print(f"  ✗ {pdf.name}: {type(exc).__name__}: {exc}")
+            return {"pdf": pdf.name, "status": "error", "error": str(exc), "cost": cost}
 
 
-async def main():
-    # Dynamically determine base directory (parent of scripts/)
-    base_dir = Path(__file__).parent.parent.resolve()
-    processor = PDFProcessor(base_dir)
+async def run(pdfs: list[Path], *, screen: bool, verify: bool) -> list[dict]:
+    from anthropic import AsyncAnthropic
 
-    # Find unprocessed PDFs
-    unprocessed = processor.find_unprocessed_pdfs()
+    client = AsyncAnthropic()
+    schema = records.load_schema(config.SCHEMA_PATH)
+    pipeline = Pipeline(client, schema, screen=screen, verify=verify)
+    sem = asyncio.Semaphore(config.BATCH_CONCURRENCY)
 
-    if not unprocessed:
-        print("✓ No unprocessed PDFs found. All PDFs have reviews!")
-        return
+    async def guarded(pdf):
+        async with sem:
+            return await pipeline.process(pdf)
 
-    print(f"Found {len(unprocessed)} unprocessed PDF(s):")
-    for pdf in unprocessed:
-        print(f"  - {pdf.name}")
+    return await asyncio.gather(*(guarded(p) for p in pdfs))
 
-    # Process in batches
-    batch_size = 4  # Adjust based on system resources
-    results = await processor.process_batch(unprocessed, batch_size=batch_size)
 
-    # Print summary
-    processor.print_summary(results)
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Batch-extract SCORCH reviews from PDFs.")
+    parser.add_argument("--screen", action="store_true", help="Cheap Haiku include/exclude pass first.")
+    parser.add_argument("--verify", action="store_true", help="Opus audit pass after extraction.")
+    parser.add_argument("--dry-run", action="store_true", help="List work; make no API calls.")
+    args = parser.parse_args()
 
-    # Check for successful completions
-    successes = [r for r in results if r["status"] == "success"]
-    if successes:
-        print(f"\n✓ Created {len(successes)} new review file(s)")
-        print(f"\nNext step: Run duckdb-schema-converter to update database")
+    config.REVIEW_DIR.mkdir(exist_ok=True)
+    pdfs = unprocessed_pdfs()
+    if not pdfs:
+        print("✓ No unprocessed PDFs found.")
+        return 0
+
+    print(f"Found {len(pdfs)} unprocessed PDF(s); models: screen={config.SCREEN_MODEL} "
+          f"extract={config.EXTRACT_MODEL} verify={config.VERIFY_MODEL}")
+    if args.dry_run:
+        for p in pdfs:
+            print(f"  • {p.name}")
+        print("(dry run — no API calls)")
+        return 0
+
+    results = asyncio.run(run(pdfs, screen=args.screen, verify=args.verify))
+
+    ok = sum(r["status"] == "success" for r in results)
+    total_cost = sum(r.get("cost", 0.0) for r in results)
+    print(f"\n{'='*60}\nDONE: {ok}/{len(results)} extracted  |  est. ${total_cost:.2f}")
+    print("Next: python scripts/convert_to_duckdb.py && python scripts/build_okf.py")
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    raise SystemExit(main())

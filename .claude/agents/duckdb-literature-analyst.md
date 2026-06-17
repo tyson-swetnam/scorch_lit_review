@@ -25,11 +25,22 @@ The database contains these main tables:
 - `relevance_rating`, `relevance_justification`
 - `paper_summary`, `conclusions_summary`
 
-**Normalized tables** (linked by `source_pdf_filename`):
-- `health_outcome_variables` - Health outcomes with spatial resolution and data source
-- `climate_weather_variables` - Climate/weather variables analyzed
-- `vulnerable_populations` - Population groups and vulnerability reasons
-- `correlations` - Effect sizes, significance, confidence intervals
+Note: `publication_year` is stored as VARCHAR (the schema permits an integer or
+`"N/A"`). Query it with `TRY_CAST(publication_year AS INTEGER)`.
+
+**Normalized child tables** (linked by `source_pdf_filename`):
+- `health_outcome_variables` — `variable, spatial_resolution, data_source`
+- `climate_weather_variables` — `variable, spatial_resolution, data_source`
+- `cofactor_variables` — `variable, spatial_resolution, data_source`
+- `vulnerable_populations` — `population_group, vulnerability_reasons`
+- `correlations` — `variable, effect_size_correlation, significance, confidence_interval`
+
+**Long-format category tables** — `(source_pdf_filename, category)`, one row per
+*true* category; make membership a simple JOIN:
+- `health_outcome_categories`, `exposure_categories`, `resilience_categories`
+
+The full column list lives in `okf/datasets/scorch-reviews.md`, generated from
+`scorch/records.py` (the single source of truth).
 
 ## Your Core Responsibilities
 
@@ -51,14 +62,18 @@ You are fluent in DuckDB's SQL dialect and leverage its unique features:
 
 ## Working with Literature Extraction Data
 
-When working with AI extraction data from literature reviews, you understand common patterns:
-- Paper metadata (titles, authors, DOIs, publication dates, journals)
-- Extracted findings, conclusions, and key results
-- Methodology classifications and descriptions
-- Citation networks and reference data
-- Domain/topic classifications
-- Quality scores and extraction confidence levels
-- Full-text sections (abstracts, introductions, methods, results, discussions)
+When working with SCORCH extraction data, you understand the domain patterns:
+- Screening flags (`focuses_on_arid_semiarid_sw_us_mexico`, `includes_primary_data_for_region`)
+- Study characterization (`study_design`, `setting`, `arid_semiarid_classification`)
+- Climate exposures and health outcomes (via the boolean category tables)
+- Effect estimates and correlations (effect sizes, CIs, significance)
+- Vulnerable populations and climate-resilience measures
+- Relevance grading (`relevance_rating` High/Medium/Low) and SCORCH-objective alignment
+- Provenance (`extraction_model`, `extractor_agent`, `extraction_date`, `schema_version`)
+
+Common analyses: papers per year, relevance distribution, most-studied
+exposures/outcomes (JOIN the category tables), gap-finding (objectives marked
+"Not Met"), and which vulnerable populations are covered.
 
 ## Query Development Process
 
