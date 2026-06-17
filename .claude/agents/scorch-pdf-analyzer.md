@@ -23,6 +23,39 @@ Systematically analyze PDF documents from the `pdfs/` folder and generate detail
 3. **Use empty arrays `[]` for missing list data**: When a table or list question has no applicable data.
 4. **Use `null` for missing numeric values**: In demographic or statistical fields.
 5. **Boolean fields**: Use `true` or `false` for all checkbox-style questions.
+6. **Cite every substantive value (provenance)**: For every non-`"N/A"`, non-`false`, non-empty value you extract, add a matching entry to `extraction_metadata.evidence_log` recording the source **page number** and a **verbatim quote**. Do NOT add entries for fields that are `"N/A"`, `false`, `[]`, or `null` — you cannot cite the absence of something. Never invent a page number or quote: if you cannot locate a value on a page, mark the field `"N/A"` instead of guessing.
+
+## Source Provenance (required — schema v1.2)
+
+Every substantive value must be traceable to the PDF. Build
+`extraction_metadata.evidence_log` as an array, one entry per claim:
+
+```json
+"extraction_metadata": {
+  "extraction_date": "YYYY-MM-DD",
+  "extractor_agent": "scorch-pdf-analyzer",
+  "extraction_model": "claude-opus-4-8",
+  "source_pdf_filename": "<original>.pdf",
+  "schema_version": "1.2",
+  "notes": "N/A",
+  "evidence_log": [
+    {"field_path": "metadata.title", "claim": "<title text>",
+     "page_start": 1, "page_end": null, "quote": "<verbatim from PDF>",
+     "char_start": null, "char_end": null, "line_hint": null}
+  ]
+}
+```
+
+- `field_path` is the dotted path with `[i]` for array items, e.g.
+  `spatial_temporal.geographic_areas[0]`,
+  `associations_effects.correlations_table[1].effect_size_correlation`,
+  `vulnerable_populations[0].population_group`, `health_outcomes.health_outcome_categories.heat`.
+- Cover **every substantive field**: title, citation, study design, each geographic
+  area, all numeric/effect/correlation data, each specific health outcome, each direct
+  exposure, each vulnerable population, climate projections, **each `true` category flag**,
+  and the relevance rating.
+- `quote` is copied verbatim from the PDF. `line_hint` only if the PDF prints line
+  numbers, otherwise `null`. Leave `page_end`/`char_start`/`char_end` `null` when unknown.
 
 ## Operational Workflow
 
@@ -57,6 +90,11 @@ required field present, arrays/booleans/nulls used per the N/A policy. (The
 `convert_to_duckdb.py` step validates with `jsonschema` and will reject invalid
 reviews — catching issues here saves a round trip.)
 
+Also self-check **provenance coverage**: every substantive value you populated has a
+matching `extraction_metadata.evidence_log` entry (page + verbatim quote).
+`convert_to_duckdb.py` warns on uncited substantive fields and `--strict` rejects them
+(`scorch.records.validate_evidence_coverage`).
+
 ### Phase 4: Verify, Database, and Wiki
 After completing the JSON review file:
 1. **Recommend a verification pass**: Suggest running the `scorch-verifier` agent
@@ -83,13 +121,14 @@ pdfs/ → scorch-screener → scorch-pdf-analyzer → scorch-verifier
 ## Incremental Saving Protocol
 To protect against context window limitations:
 - Save the review JSON after completing each major section (screening, metadata, tables, etc.)
-- Include extraction metadata: `extraction_date`, `extractor_agent`, `source_pdf_filename`, `schema_version`
+- Include extraction metadata: `extraction_date`, `extractor_agent`, `source_pdf_filename`, `schema_version`, `evidence_log`
+- Build the `evidence_log` incrementally as each section is filled (cite the page + quote while you have the passage in view)
 - Save immediately before any complex analysis
 
 ## Answer Quality Standards
 - **Accuracy**: Only include information explicitly stated in the document
 - **N/A Policy**: Use `"N/A"` when information is not present - never fabricate
-- **Specificity**: Provide exact values, quotes, and page references where possible
+- **Specificity & provenance**: Every substantive value MUST be backed by an `evidence_log` entry (source page + verbatim quote). Do not fabricate page numbers; if a value cannot be located on a page, mark the field `"N/A"` rather than guessing.
 - **Schema Compliance**: Follow the exact data types specified (boolean, array, enum, etc.)
 - **Epidemiological Precision**: Use proper epidemiological terminology for health outcomes and exposures
 

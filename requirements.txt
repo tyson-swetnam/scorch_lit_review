@@ -8,3 +8,4 @@ duckdb>=1.1                # Analytical database + Parquet export
 jsonschema>=4.21           # Validate reviews against scorch_extraction_schema.json
 pydantic>=2.6              # Typed models for structured outputs
 PyYAML>=6.0                # OKF YAML frontmatter (read/write)
+reportlab>=4.0             # PDF report generation (scripts/export_review_pdfs.py)

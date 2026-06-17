@@ -5,16 +5,16 @@ paper_count: 1
 tags:
 - population
 timestamp: '2026-06-17'
-title: Low-income outdoor workers
+title: Unhoused populations
 ---
 
-# Low-income outdoor workers
+# Unhoused populations
 
 *Vulnerable population concept — 1 paper(s) in the corpus.*
 
 ## Studied by
 
-- [EXAMPLE (synthetic) — Extreme heat and all-cause mortality in metropolitan Phoenix, Arizona](../papers/example-2024-heatmortalityphoenix.md) — High relevance
+- [Coproducing Opportunities to Advance Heat Resilience in Southern Arizona](../papers/bams-d-24-0216-1.md) — High relevance
 
 ## Curator notes
 

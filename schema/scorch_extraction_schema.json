@@ -3,11 +3,12 @@
   "$id": "scorch_lit_review_extraction",
   "title": "SCORCH Literature Review Extraction Schema",
   "description": "Schema for extracting climate-health research data from literature focused on arid/semi-arid regions of the US Southwest and northern Mexico",
-  "version": "1.1",
+  "version": "1.2",
   "instructions": {
     "na_policy": "Use the string 'N/A' when information is not present in the source PDF. Do not make assumptions or provide creative answers. Only extract what is explicitly stated or clearly supported by the document.",
     "boolean_fields": "Use true/false for all yes/no and checkbox-style questions.",
-    "array_fields": "Use arrays for multiple values. Empty array [] if none found, or ['N/A'] if the question requires acknowledgment that data was sought but not found."
+    "array_fields": "Use arrays for multiple values. Empty array [] if none found, or ['N/A'] if the question requires acknowledgment that data was sought but not found.",
+    "provenance_policy": "Every substantive (non-'N/A', non-false, non-empty, non-null) extracted value must have a matching entry in extraction_metadata.evidence_log that cites the source PDF page number and a verbatim supporting quote. Do NOT create evidence_log entries for fields that are 'N/A', false, [], or null — you cannot cite the absence of something. Never invent page numbers or quotes."
   },
   "type": "object",
   "required": ["screening", "metadata", "spatial_temporal", "study_characteristics"],
@@ -674,12 +675,54 @@
         },
         "schema_version": {
           "type": "string",
-          "default": "1.1",
+          "default": "1.2",
           "description": "Version of this schema used"
         },
         "notes": {
           "type": "string",
           "description": "Any additional notes about the extraction. Use 'N/A' if none."
+        },
+        "evidence_log": {
+          "type": "array",
+          "description": "Per-claim source provenance. Add one entry for every SUBSTANTIVE (non-'N/A', non-false, non-empty, non-null) extracted value, citing the source PDF page number and a verbatim supporting quote. Do NOT add entries for fields that are 'N/A', false, [], or null. Optional in the schema (legacy reviews predate it); coverage is enforced by scorch.records.validate_evidence_coverage.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "field_path": {
+                "type": "string",
+                "description": "Dotted path to the field, using [i] for array items, e.g. 'metadata.title', 'spatial_temporal.geographic_areas[0]', 'associations_effects.correlations_table[1].effect_size_correlation'."
+              },
+              "claim": {
+                "type": "string",
+                "description": "The extracted value (or a short snippet of it) that this entry supports."
+              },
+              "page_start": {
+                "type": "integer",
+                "description": "First supporting page as a 1-based PDF sheet number (the Nth page of the PDF, matching the Files API and a PDF viewer; the first sheet is 1). Do NOT use the printed journal page label; note that in the quote/claim if useful."
+              },
+              "page_end": {
+                "type": ["integer", "null"],
+                "description": "Last supporting PDF sheet number; null if the claim is on a single page."
+              },
+              "quote": {
+                "type": "string",
+                "description": "Verbatim supporting text copied from the source PDF. No paraphrasing."
+              },
+              "char_start": {
+                "type": ["integer", "null"],
+                "description": "Start character offset within the source document, when available (e.g. from the Files API citations); otherwise null."
+              },
+              "char_end": {
+                "type": ["integer", "null"],
+                "description": "End character offset within the source document, when available; otherwise null."
+              },
+              "line_hint": {
+                "type": ["string", "null"],
+                "description": "OPTIONAL best-effort line reference, populated ONLY when the PDF itself prints line numbers (e.g. a preprint); otherwise null. Never required and never guessed."
+              }
+            },
+            "required": ["field_path", "claim", "page_start", "quote"]
+          }
         }
       },
       "required": ["extraction_date", "extractor_agent", "source_pdf_filename", "schema_version"]

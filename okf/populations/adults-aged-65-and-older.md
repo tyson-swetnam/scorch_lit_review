@@ -4,7 +4,7 @@ category: population
 paper_count: 1
 tags:
 - population
-timestamp: '2026-06-16'
+timestamp: '2026-06-17'
 title: Adults aged 65 and older
 ---
 

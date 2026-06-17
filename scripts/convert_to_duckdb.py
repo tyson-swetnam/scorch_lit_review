@@ -94,7 +94,7 @@ def main() -> int:
     existing = existing_filenames(con)
     review_files = list(records.iter_review_files(config.REVIEW_DIR))
 
-    added = skipped = invalid = errors = 0
+    added = skipped = invalid = errors = uncited = 0
     print(f"\n\U0001f4ca {len(review_files)} review file(s) found; {len(existing)} already in DB\n")
 
     for path in review_files:
@@ -124,6 +124,17 @@ def main() -> int:
                 return 2
             continue
 
+        # Evidence coverage (schema v1.2): every substantive value should cite a
+        # source page + quote. Warn by default so legacy reviews still load; under
+        # --strict, an uncited substantive field is a hard failure.
+        gaps = records.validate_evidence_coverage(data)
+        if gaps:
+            print(f"  ⚠ Evidence gaps in {path.name} ({len(gaps)} uncited field(s)): {gaps[0]}")
+            uncited += 1
+            if args.strict:
+                con.close()
+                return 2
+
         try:
             con.execute("BEGIN")
             insert_review(con, data)
@@ -150,6 +161,8 @@ def main() -> int:
     print(f"  → Skipped: {skipped} (already present)")
     if invalid:
         print(f"  ⚠ Invalid: {invalid} (schema violations)")
+    if uncited:
+        print(f"  ⚠ Uncited: {uncited} (review(s) with substantive fields lacking provenance)")
     if errors:
         print(f"  ✗ Errors:  {errors}")
     print(f"  \U0001f4ca Total in DB: {total}")

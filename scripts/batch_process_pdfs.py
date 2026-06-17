@@ -5,7 +5,8 @@ Pipeline per PDF (stages are opt-in via flags):
 
     upload (Files API, once)
       -> screen   [Haiku 4.5]  cheap include/exclude on the arid-SW gate (--screen)
-      -> extract  [Sonnet 4.6] full 46-field JSON, validated against the schema
+      -> extract  [Sonnet 4.6] full 46-field JSON + per-claim provenance (page + quote),
+                               validated against the schema
       -> verify   [Opus 4.8]   flags likely hallucinations / N/A-policy violations (--verify)
 
 Modernizations over the original script:
@@ -15,7 +16,9 @@ Modernizations over the original script:
 - Caches the large schema/system prefix with prompt caching (~90% cheaper prefix).
 - Validates every extraction against scorch_extraction_schema.json and runs one
   repair pass on failure, instead of scraping the first {...} and hoping.
-- Records provenance (model, token usage, cost estimate) in extraction_metadata.
+- Records provenance (model, token usage, cost estimate) in extraction_metadata,
+  and per-claim source provenance (page number + verbatim quote) in
+  extraction_metadata.evidence_log, grounded by the Files API citations feature.
 
 Requires ANTHROPIC_API_KEY. Run `--dry-run` to preview work with no API calls.
 
@@ -52,7 +55,19 @@ def extraction_system_prompt(schema: dict) -> list[dict]:
         "Rules:\n"
         "1. Use the string \"N/A\" when information is absent — NEVER fabricate.\n"
         "2. Respect every enum and type; use [] for empty arrays and null for absent numbers.\n"
-        "3. Output ONLY the JSON object — no markdown fences, no commentary.\n\n"
+        "3. Output ONLY the JSON object — no markdown fences, no commentary.\n"
+        "4. Provenance: populate extraction_metadata.evidence_log. For EVERY substantive "
+        "(non-\"N/A\", non-false, non-empty) value — including title, citation, study_design, "
+        "each geographic area, all numeric/effect/correlation data, each specific health "
+        "outcome, direct exposure, vulnerable population, climate projection, each true "
+        "category flag, and the relevance rating — add an entry "
+        "{field_path, claim, page_start, quote} (add page_end/char_start/char_end when known).\n"
+        "5. field_path uses dotted notation with [i] for array items, e.g. "
+        "\"spatial_temporal.geographic_areas[0]\", "
+        "\"associations_effects.correlations_table[1].effect_size_correlation\".\n"
+        "6. quote MUST be verbatim text from the PDF. Do NOT add evidence entries for fields "
+        "that are \"N/A\", false, [], or null. Never invent page numbers or quotes; set "
+        "line_hint only if the PDF prints line numbers, otherwise null.\n\n"
         "JSON Schema:\n" + json.dumps(schema, indent=2)
     )
     # cache_control marks this (large, stable) block as cacheable.
@@ -82,6 +97,56 @@ def _usage_cost(model: str, usage) -> float:
     )
 
 
+def collect_citation_spans(message) -> list[dict]:
+    """Flatten Files API citation spans from a response's text blocks.
+
+    Mirrors the attribute set parsed in scripts/ask_papers.py. Spans attach to the
+    model's output text, not to JSON keys, so they are a grounding/repair signal
+    used to fill page/char offsets on the model-emitted evidence_log entries.
+    """
+    spans: list[dict] = []
+    for block in getattr(message, "content", []) or []:
+        if getattr(block, "type", None) != "text":
+            continue
+        for cite in (getattr(block, "citations", None) or []):
+            spans.append({
+                "cited_text": (getattr(cite, "cited_text", "") or "").strip(),
+                "page_start": getattr(cite, "start_page_number", None),
+                "page_end": getattr(cite, "end_page_number", None),
+                "char_start": getattr(cite, "start_char_index", None),
+                "char_end": getattr(cite, "end_char_index", None),
+            })
+    return spans
+
+
+def merge_citation_spans(data: dict, spans: list[dict]) -> None:
+    """Fill missing page/char fields on emitted evidence_log entries by matching
+    each entry's verbatim quote against a returned citation span's cited_text."""
+    if not spans:
+        return
+    log = (data.get("extraction_metadata") or {}).get("evidence_log") or []
+    for entry in log:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("page_start") and entry.get("char_start") is not None:
+            continue
+        quote = (entry.get("quote") or "").strip()
+        if not quote:
+            continue
+        for span in spans:
+            cited = span["cited_text"]
+            if cited and (quote in cited or cited in quote):
+                if not entry.get("page_start") and span["page_start"] is not None:
+                    entry["page_start"] = span["page_start"]
+                if entry.get("page_end") is None:
+                    entry["page_end"] = span["page_end"]
+                if entry.get("char_start") is None:
+                    entry["char_start"] = span["char_start"]
+                if entry.get("char_end") is None:
+                    entry["char_end"] = span["char_end"]
+                break
+
+
 class Pipeline:
     def __init__(self, client, schema: dict, *, screen: bool, verify: bool):
         self.client = client
@@ -97,8 +162,11 @@ class Pipeline:
             )
         return meta.id
 
-    def _document(self, file_id: str) -> dict:
-        return {"type": "document", "source": {"type": "file", "file_id": file_id}}
+    def _document(self, file_id: str, *, cite: bool = False) -> dict:
+        block = {"type": "document", "source": {"type": "file", "file_id": file_id}}
+        if cite:
+            block["citations"] = {"enabled": True}
+        return block
 
     async def screen(self, file_id: str) -> dict:
         msg = await self.client.beta.messages.create(
@@ -123,30 +191,41 @@ class Pipeline:
         async with self.client.beta.messages.stream(
             model=config.EXTRACT_MODEL, max_tokens=config.EXTRACT_MAX_TOKENS,
             betas=[FILES_BETA], system=self.system,
-            messages=[{"role": "user", "content": [self._document(file_id),
+            messages=[{"role": "user", "content": [self._document(file_id, cite=True),
                                                     {"type": "text", "text": prompt}]}],
         ) as stream:
             msg = await stream.get_final_message()
         cost += _usage_cost(config.EXTRACT_MODEL, msg.usage)
+        spans = collect_citation_spans(msg)
         data = parse_json_object(_text(msg))
 
         errors = records.validate_review(data, self.schema)
         if errors:  # one repair pass
+            prior_log = (data.get("extraction_metadata") or {}).get("evidence_log")
             repair = ("The JSON failed schema validation. Fix ONLY these issues and "
-                      "return the full corrected JSON object:\n- " + "\n- ".join(errors[:20]))
+                      "return the full corrected JSON object. Preserve the existing "
+                      "extraction_metadata.evidence_log; only add or correct entries needed "
+                      "to fix the listed issues — never drop provenance:\n- "
+                      + "\n- ".join(errors[:20]))
             rmsg = await self.client.beta.messages.create(
                 model=config.EXTRACT_MODEL, max_tokens=config.EXTRACT_MAX_TOKENS,
                 betas=[FILES_BETA], system=self.system,
                 messages=[
-                    {"role": "user", "content": [self._document(file_id),
+                    {"role": "user", "content": [self._document(file_id, cite=True),
                                                  {"type": "text", "text": prompt}]},
                     {"role": "assistant", "content": json.dumps(data)},
                     {"role": "user", "content": repair},
                 ],
             )
             cost += _usage_cost(config.EXTRACT_MODEL, rmsg.usage)
+            spans += collect_citation_spans(rmsg)
             data = parse_json_object(_text(rmsg))
+            # carry provenance forward if the repair round-trip dropped it
+            new_meta = data.setdefault("extraction_metadata", {})
+            if prior_log and not new_meta.get("evidence_log"):
+                new_meta["evidence_log"] = prior_log
 
+        merge_citation_spans(data, spans)
         self._stamp(data, pdf_name)
         return data, cost
 
@@ -198,9 +277,13 @@ class Pipeline:
                 data["extraction_metadata"]["verification"] = {
                     "model": config.VERIFY_MODEL, "ok": audit.get("ok"),
                     "flags": audit.get("flags", []),
+                    "evidence_gaps": records.validate_evidence_coverage(data),
                 }
                 if audit.get("flags"):
                     print(f"  ⚠ {pdf.name}: verifier flagged {len(audit['flags'])} field(s)")
+                gaps = data["extraction_metadata"]["verification"]["evidence_gaps"]
+                if gaps:
+                    print(f"  ⚠ {pdf.name}: {len(gaps)} substantive field(s) lack provenance")
 
             data["extraction_metadata"]["estimated_cost_usd"] = round(cost, 4)
             out.write_text(json.dumps(data, indent=2), encoding="utf-8")

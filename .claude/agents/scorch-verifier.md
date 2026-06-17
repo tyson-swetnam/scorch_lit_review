@@ -22,6 +22,10 @@ review JSON is correct until the PDF supports it.
    the PDF is silent, but were filled in anyway.
 3. **Enum / type drift** — values outside the schema's allowed sets.
 4. **Screening consistency** — do Q1-Q2 booleans match the actual study area?
+5. **Provenance coverage & accuracy (schema v1.2)** — every substantive value should
+   have an `extraction_metadata.evidence_log` entry. Flag substantive fields with no
+   entry, and verify each entry's `quote` is actually verbatim on its cited `page_start`
+   — flag mismatched pages or paraphrased/invented quotes.
 
 ## How to work
 - Quote or page-reference the supporting passage for any field you challenge.
@@ -35,4 +39,5 @@ review JSON is correct until the PDF supports it.
 - A one-line recommendation (accept / re-extract specific sections / exclude).
 
 Findings can be written back into the review's
-`extraction_metadata.verification` block so provenance travels with the record.
+`extraction_metadata.verification` block so provenance travels with the record
+(including an `evidence_gaps` list of substantive field paths that lack a citation).

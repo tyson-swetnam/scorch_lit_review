@@ -4,7 +4,7 @@ category: exposure
 paper_count: 1
 tags:
 - exposure
-timestamp: '2026-06-16'
+timestamp: '2026-06-17'
 title: Extreme seasonal weather fluctuations
 ---
 

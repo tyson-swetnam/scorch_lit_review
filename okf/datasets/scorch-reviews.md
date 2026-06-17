@@ -4,7 +4,7 @@ title: scorch_reviews (DuckDB)
 description: Queryable database of extracted SCORCH literature reviews; one row per paper plus normalized child tables.
 resource: duckdb/scorch_reviews.duckdb
 tags: [duckdb, parquet, dataset]
-timestamp: 2026-06-16
+timestamp: 2026-06-17
 ---
 
 # scorch_reviews
@@ -42,6 +42,7 @@ Primary key: `source_pdf_filename`. Key columns:
 | cofactor_variables | variable, spatial_resolution, data_source | `data_tables.cofactor_variables` |
 | [vulnerable_populations](../populations/) | population_group, vulnerability_reasons | `vulnerable_populations[]` |
 | correlations | variable, effect_size_correlation, significance, confidence_interval | `associations_effects.correlations_table` |
+| field_evidence | field_path, claim, page_start, page_end, quote, char_start, char_end, line_hint | `extraction_metadata.evidence_log[]` (schema v1.2 per-claim provenance; page/char columns are INTEGER) |
 
 ## Long-format category tables
 
@@ -65,4 +66,15 @@ WHERE e.category = 'heat' AND r.relevance_rating = 'High';
 -- Most-studied vulnerable populations
 SELECT population_group, COUNT(*) AS n
 FROM vulnerable_populations GROUP BY population_group ORDER BY n DESC;
+
+-- Source provenance for a paper (page + verbatim quote per claim)
+SELECT field_path, page_start, quote
+FROM field_evidence
+WHERE source_pdf_filename = 'BAMS-D-24-0216.1.pdf'
+ORDER BY page_start, field_path;
+
+-- Provenance coverage: how many distinct fields each paper cites
+SELECT r.source_pdf_filename, COUNT(DISTINCT fe.field_path) AS cited_fields
+FROM reviews r LEFT JOIN field_evidence fe USING (source_pdf_filename)
+GROUP BY 1 ORDER BY 1;
 ```

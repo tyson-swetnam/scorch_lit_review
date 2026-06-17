@@ -6,11 +6,12 @@ field lists, so the column/value count can never drift (the legacy converter
 declared 22 columns but inserted 19, failing on every row).
 
 Every dotted path below was verified against
-``schema/scorch_extraction_schema.json`` (schema version 1.1).
+``schema/scorch_extraction_schema.json`` (schema version 1.2).
 """
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -92,6 +93,20 @@ CHILD_TABLES: dict[str, dict[str, Any]] = {
         "path": ("associations_effects", "correlations_table"),
         "columns": ["variable", "effect_size_correlation", "significance", "confidence_interval"],
     },
+    # Per-claim source provenance (schema v1.2): extraction_metadata.evidence_log.
+    # Each entry already keys on the column names below, so child_rows() needs no
+    # change. Page/char columns are INTEGER via the optional "types" map.
+    "field_evidence": {
+        "path": ("extraction_metadata", "evidence_log"),
+        "columns": ["field_path", "claim", "page_start", "page_end",
+                    "quote", "char_start", "char_end", "line_hint"],
+        "types": {
+            "page_start": "INTEGER",
+            "page_end": "INTEGER",
+            "char_start": "INTEGER",
+            "char_end": "INTEGER",
+        },
+    },
 }
 
 # Boolean "category" maps -> long-format (source_pdf_filename, category) rows for
@@ -149,7 +164,8 @@ def child_ddl() -> list[str]:
     """CREATE TABLE statements for every child + category table."""
     stmts = []
     for table, spec in CHILD_TABLES.items():
-        cols = ",\n".join(f"    {c} VARCHAR" for c in spec["columns"])
+        types = spec.get("types", {})
+        cols = ",\n".join(f"    {c} {types.get(c, 'VARCHAR')}" for c in spec["columns"])
         stmts.append(
             f"CREATE TABLE IF NOT EXISTS {table} (\n"
             f"    source_pdf_filename VARCHAR,\n{cols}\n)"
@@ -184,6 +200,84 @@ def validate_review(data: dict, schema: dict) -> list[str]:
         loc = "/".join(str(p) for p in err.path) or "(root)"
         errors.append(f"{loc}: {err.message}")
     return errors
+
+
+# --- Evidence coverage (schema v1.2) -----------------------------------------
+# The JSON Schema validates the *shape* of extraction_metadata.evidence_log;
+# these helpers validate its *coverage* — that every substantive extracted value
+# is backed by at least one provenance entry. JSON Schema cannot express
+# "required only when the value is substantive", so coverage lives here.
+_NA_STRINGS = {"", "n/a", "na", "none", "null"}
+
+
+def _is_substantive(value: Any) -> bool:
+    """True if a value is a real asserted claim worth citing.
+
+    Exempts the cases you cannot cite an absence for: None, False, the "N/A"
+    family of strings, and empty lists/dicts. True booleans, numbers, non-empty
+    strings, and non-empty collections are substantive.
+    """
+    if value is None or value is False:
+        return False
+    if isinstance(value, str):
+        return value.strip().lower() not in _NA_STRINGS
+    if isinstance(value, (list, dict)):
+        return len(value) > 0
+    return True
+
+
+def _normalize_path(path: str) -> str:
+    """Strip array indices for matching: 'a.b[0].c' -> 'a.b.c'."""
+    return re.sub(r"\[\d+\]", "", path or "")
+
+
+def walk_substantive_paths(data: dict) -> set[str]:
+    """Return the set of normalized field paths that require an evidence entry.
+
+    Walks every section except ``extraction_metadata``. Array indices collapse to
+    the field path (citing one representative item satisfies that field); boolean
+    "category" maps yield one path per category set to ``true``.
+    """
+    paths: set[str] = set()
+
+    def visit(value: Any, path: str) -> None:
+        if isinstance(value, dict):
+            for key, val in value.items():
+                visit(val, f"{path}.{key}" if path else key)
+        elif isinstance(value, list):
+            for item in value:  # collapse index: recurse with the same path
+                visit(item, path)
+        elif _is_substantive(value):
+            paths.add(path)
+
+    for section, value in data.items():
+        if section == "extraction_metadata":
+            continue
+        visit(value, section)
+    return paths
+
+
+def validate_evidence_coverage(data: dict) -> list[str]:
+    """Return a list of substantive field paths lacking provenance ([] if covered).
+
+    Mirrors :func:`validate_review` but checks COVERAGE, not SHAPE: every
+    substantive value (see :func:`_is_substantive`) must have at least one
+    ``extraction_metadata.evidence_log`` entry whose normalized ``field_path``
+    equals it or is an ancestor of it. Field-level (array indices collapsed) so a
+    representative citation per field satisfies the requirement.
+    """
+    meta = data.get("extraction_metadata") or {}
+    log = meta.get("evidence_log") or []
+    covered = {
+        _normalize_path(e.get("field_path", ""))
+        for e in log
+        if isinstance(e, dict) and e.get("field_path")
+    }
+    missing = sorted(
+        req for req in walk_substantive_paths(data)
+        if not any(req == c or req.startswith(c + ".") for c in covered)
+    )
+    return [f"{p}: substantive value has no evidence_log entry" for p in missing]
 
 
 def iter_review_files(review_dir: str | Path) -> Iterable[Path]:
