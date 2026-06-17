@@ -5,16 +5,16 @@ paper_count: 1
 tags:
 - population
 timestamp: '2026-06-17'
-title: Low-income outdoor workers
+title: People experiencing homelessness
 ---
 
-# Low-income outdoor workers
+# People experiencing homelessness
 
 *Vulnerable population concept — 1 paper(s) in the corpus.*
 
 ## Studied by
 
-- [EXAMPLE (synthetic) — Extreme heat and all-cause mortality in metropolitan Phoenix, Arizona](../papers/example-2024-heatmortalityphoenix.md) — High relevance
+- [Cross-Sector Management of Extreme Heat Risks in Arizona](../papers/bams-d-18-0183-1.md) — Medium relevance
 
 ## Curator notes
 

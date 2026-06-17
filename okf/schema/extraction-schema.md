@@ -4,8 +4,8 @@ title: SCORCH Extraction Schema (46 questions)
 description: The contract every review JSON must satisfy; maps Q1-Q46 to schema sections.
 resource: schema/scorch_extraction_schema.json
 tags: [schema, extraction, contract]
-schema_version: "1.1"
-timestamp: 2026-06-16
+schema_version: "1.2"
+timestamp: 2026-06-17
 ---
 
 # Extraction schema
@@ -20,6 +20,14 @@ before entering the database. This page is the human-readable map.
   fabricate. Empty arrays `[]` for absent lists; `null` for absent numbers.
 - **Booleans** for checkbox questions; **enums** are closed sets (validation
   rejects out-of-vocabulary values).
+- **Provenance (schema v1.2):** every substantive (non-`"N/A"`, non-`false`,
+  non-empty) value must have a matching entry in `extraction_metadata.evidence_log`
+  citing the source **page number** and a **verbatim quote** (character offsets when
+  available; line numbers only when the PDF prints them — never guessed). Coverage is
+  enforced by `scorch.records.validate_evidence_coverage` (warn by default in
+  `convert_to_duckdb.py`, hard-fail under `--strict`); the JSON Schema validates only
+  the *shape* of each entry. Entries are normalized into the `field_evidence` DuckDB
+  table and surfaced in the review PDFs and OKF paper-page `## Sources` blocks.
 
 ## Sections (Q1-Q46)
 
@@ -46,7 +54,7 @@ before entering the database. This page is the human-readable map.
 | `limitations_gaps` | Q41-Q43 | Limitations, data gaps, future research |
 | `overall_relevance` | Q44 | Rating (High/Medium/Low) + justification |
 | `summary` | Q45-Q46 | Paper summary, conclusions |
-| `extraction_metadata` | — | Provenance: date, agent, model, source PDF, schema version |
+| `extraction_metadata` | — | Provenance: date, agent, model, source PDF, schema version, and `evidence_log[]` (per-claim page + verbatim quote) |
 
 ## How sections map downstream
 

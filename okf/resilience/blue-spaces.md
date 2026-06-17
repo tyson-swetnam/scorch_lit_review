@@ -1,21 +1,20 @@
 ---
 type: Concept
 category: resilience-measure
-paper_count: 2
+paper_count: 1
 tags:
 - resilience-measure
 timestamp: '2026-06-17'
-title: Green spaces
+title: Blue spaces
 ---
 
-# Green spaces
+# Blue spaces
 
-*Resilience measure concept — 2 paper(s) in the corpus.*
+*Resilience measure concept — 1 paper(s) in the corpus.*
 
 ## Studied by
 
 - [Coproducing Opportunities to Advance Heat Resilience in Southern Arizona](../papers/bams-d-24-0216-1.md) — High relevance
-- [EXAMPLE (synthetic) — Extreme heat and all-cause mortality in metropolitan Phoenix, Arizona](../papers/example-2024-heatmortalityphoenix.md) — High relevance
 
 ## Curator notes
 

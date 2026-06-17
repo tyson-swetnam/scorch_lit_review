@@ -26,7 +26,7 @@ tags:
 - phoenix-arizona
 - policy-law
 - renal-conditions
-timestamp: '2026-06-16'
+timestamp: '2026-06-17'
 title: EXAMPLE (synthetic) — Extreme heat and all-cause mortality in metropolitan
   Phoenix, Arizona
 ---

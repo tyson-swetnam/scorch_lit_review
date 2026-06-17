@@ -23,7 +23,7 @@ SCHEMA_PATH = SCHEMA_DIR / "scorch_extraction_schema.json"
 DB_PATH = DUCKDB_DIR / "scorch_reviews.duckdb"
 PARQUET_PATH = DUCKDB_DIR / "scorch_reviews.parquet"
 
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
 
 # --- Models (tiered cascade) -------------------------------------------------
 # Screen cheaply, extract at the cost/quality sweet spot, verify with the

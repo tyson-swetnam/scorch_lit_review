@@ -34,6 +34,7 @@ Note: `publication_year` is stored as VARCHAR (the schema permits an integer or
 - `cofactor_variables` — `variable, spatial_resolution, data_source`
 - `vulnerable_populations` — `population_group, vulnerability_reasons`
 - `correlations` — `variable, effect_size_correlation, significance, confidence_interval`
+- `field_evidence` — `field_path, claim, page_start, page_end, quote, char_start, char_end, line_hint` (schema v1.2 per-claim source provenance; `page_*`/`char_*` are INTEGER). JOIN on `source_pdf_filename`; filter by `field_path` to trace where a specific value came from.
 
 **Long-format category tables** — `(source_pdf_filename, category)`, one row per
 *true* category; make membership a simple JOIN:

@@ -110,6 +110,7 @@ def build_paper_page(data: dict, okf_dir: Path) -> dict:
         "relevance_rating": records.get_path(data, "overall_relevance", "relevance_rating"),
         "geographic_areas": records.get_path(data, "spatial_temporal", "geographic_areas", default=[]),
         "source_pdf": records.get_path(data, "extraction_metadata", "source_pdf_filename"),
+        "evidence_count": len(records.get_path(data, "extraction_metadata", "evidence_log", default=[]) or []) or None,
         "tags": sorted({okf.slugify(l) for labels in labels_by_dim.values() for l in labels}) or None,
         "status": "example" if is_example else "extracted",
         "timestamp": date.today().isoformat(),
@@ -147,6 +148,28 @@ def build_paper_page(data: dict, okf_dir: Path) -> dict:
     justification = records.get_path(data, "overall_relevance", "relevance_justification")
     if rating:
         lines += ["## Relevance", "", f"**{rating}.** {justification or ''}".strip(), ""]
+
+    # Per-claim source provenance (schema v1.2). Regenerated each build; lives
+    # outside any "## Curator notes" region, so curated prose is unaffected.
+    evidence_log = records.get_path(data, "extraction_metadata", "evidence_log", default=[]) or []
+    if evidence_log:
+        lines += ["## Sources", "",
+                  "Per-claim provenance from the source PDF (page + verbatim quote), "
+                  "from `extraction_metadata.evidence_log`.", ""]
+        for e in evidence_log:
+            if not isinstance(e, dict):
+                continue
+            field_path = e.get("field_path", "")
+            ps, pe = e.get("page_start"), e.get("page_end")
+            if ps is None:
+                page = "p.?"
+            elif pe and pe != ps:
+                page = f"pp.{ps}-{pe}"
+            else:
+                page = f"p.{ps}"
+            quote = (e.get("quote") or "").replace("\n", " ").strip()
+            lines += [f"- **{field_path}** ({page}): \"{quote}\""]
+        lines += [""]
 
     okf.write_doc(self_path, meta, "\n".join(lines))
     return {"slug": slug, "title": title, "rating": rating, "labels": labels_by_dim,
